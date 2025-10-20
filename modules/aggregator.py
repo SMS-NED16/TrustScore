@@ -71,9 +71,9 @@ class Aggregator:
         
         # Create aggregated output
         aggregated_output: AggregatedOutput = AggregatedOutput(
-            x=llm_record.x,
-            y=llm_record.y,
-            M=llm_record.M,
+            x=llm_record.task_prompt,
+            y=llm_record.llm_response,
+            M=llm_record.model_metadata,
             summary=summary,
             errors=error_summaries
         )

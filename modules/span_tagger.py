@@ -42,9 +42,9 @@ class SpanTagger:
         if not self.client:
             raise ValueError("OpenAI client not initialized. Please provide API key.")
         
-        user_prompt: str = f"""Prompt: {llm_record.x}
+        user_prompt: str = f"""Prompt: {llm_record.task_prompt}
 
-Response: {llm_record.y}
+Response: {llm_record.llm_response}
 
 Please analyze this response for errors and return the JSON format specified in the system prompt."""
 
@@ -62,7 +62,7 @@ Please analyze this response for errors and return the JSON format specified in 
             content: str = response.choices[0].message.content
             spans_data: Dict[str, Any] = self._parse_response(content)
             
-            return self._create_spans_level_tags(spans_data, llm_record.y)
+            return self._create_spans_level_tags(spans_data, llm_record.llm_response)
             
         except Exception as e:
             raise RuntimeError(f"Error in span tagging: {str(e)}")
@@ -180,4 +180,4 @@ class MockSpanTagger(SpanTagger):
             }
         }
         
-        return self._create_spans_level_tags(mock_spans_data, llm_record.y)
+        return self._create_spans_level_tags(mock_spans_data, llm_record.llm_response)

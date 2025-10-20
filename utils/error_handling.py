@@ -82,25 +82,25 @@ class TrustScoreValidator:
         errors: List[ValidationError] = []
         
         # Validate prompt
-        if not llm_record.x or not isinstance(llm_record.x, str):
+        if not llm_record.task_prompt or not isinstance(llm_record.task_prompt, str):
             errors.append(ValidationError("Prompt must be a non-empty string", "x"))
-        elif len(llm_record.x.strip()) == 0:
+        elif len(llm_record.task_prompt.strip()) == 0:
             errors.append(ValidationError("Prompt cannot be empty or whitespace only", "x"))
         
         # Validate response
-        if not llm_record.y or not isinstance(llm_record.y, str):
+        if not llm_record.llm_response or not isinstance(llm_record.llm_response, str):
             errors.append(ValidationError("Response must be a non-empty string", "y"))
-        elif len(llm_record.y.strip()) == 0:
+        elif len(llm_record.llm_response.strip()) == 0:
             errors.append(ValidationError("Response cannot be empty or whitespace only", "y"))
         
         # Validate metadata
-        if not llm_record.M or not isinstance(llm_record.M, dict):
+        if not llm_record.model_metadata or not isinstance(llm_record.model_metadata, dict):
             errors.append(ValidationError("Metadata must be provided", "M"))
         else:
-            if not llm_record.M.get("model"):
+            if not llm_record.model_metadata.get("model"):
                 errors.append(ValidationError("Model name must be provided in metadata", "M.model"))
             
-            if not llm_record.M.get("generated_on"):
+            if not llm_record.model_metadata.get("generated_on"):
                 errors.append(ValidationError("Generation timestamp must be provided", "M.generated_on"))
         
         return errors

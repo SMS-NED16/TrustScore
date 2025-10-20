@@ -40,11 +40,11 @@ class ExplainabilityJudge(BaseJudge):
         if span.type != ErrorType.EXPLAINABILITY:
             raise ValueError("ExplainabilityJudge can only analyze explainability errors")
         
-        user_prompt: str = f"""Prompt: {llm_record.x}
+        user_prompt: str = f"""Prompt: {llm_record.task_prompt}
 
-Response: {llm_record.y}
+Response: {llm_record.llm_response}
 
-Error Span: "{llm_record.y[span.start:span.end]}"
+Error Span: "{llm_record.llm_response[span.start:span.end]}"
 Error Type: {span.subtype}
 Error Explanation: {span.explanation}
 
