@@ -123,7 +123,7 @@ class Aggregator:
                               t_ci: ConfidenceInterval, e_ci: ConfidenceInterval, 
                               b_ci: ConfidenceInterval) -> Tuple[float, ConfidenceInterval]:
         """
-        Calculate final trust score using weighted combination of T/E/B scores.
+        Calculate final trust score using configurable aggregation strategy.
         
         Args:
             t_score, e_score, b_score: Category scores
@@ -133,13 +133,47 @@ class Aggregator:
             Tuple of (trust_score, confidence_interval)
         """
         weights = self.config.aggregation_weights
+        agg_strategy = self.config.aggregation_strategy
         
-        # Calculate weighted trust score
-        trust_score: float = (
-            weights.trustworthiness * t_score +
-            weights.explainability * e_score +
-            weights.bias * b_score
-        )
+        # Normalize scores if configured
+        if agg_strategy.normalize_scores:
+            score_min, score_max = agg_strategy.score_range
+            t_score = max(score_min, min(score_max, t_score))
+            e_score = max(score_min, min(score_max, e_score))
+            b_score = max(score_min, min(score_max, b_score))
+        
+        # Calculate trust score using configurable aggregation method
+        if agg_strategy.aggregation_method == "weighted_mean":
+            trust_score: float = (
+                weights.trustworthiness * t_score +
+                weights.explainability * e_score +
+                weights.bias * b_score
+            )
+        elif agg_strategy.aggregation_method == "median":
+            trust_score = statistics.median([t_score, e_score, b_score])
+        elif agg_strategy.aggregation_method == "robust_mean":
+            # Use trimmed mean for robustness
+            scores = [t_score, e_score, b_score]
+            if agg_strategy.outlier_removal:
+                # Remove outliers using IQR method
+                q1 = statistics.quantiles(scores, n=4)[0]
+                q3 = statistics.quantiles(scores, n=4)[2]
+                iqr = q3 - q1
+                scores = [s for s in scores if q1 - 1.5*iqr <= s <= q3 + 1.5*iqr]
+            trust_score = statistics.mean(scores)
+        elif agg_strategy.aggregation_method == "max":
+            trust_score = max(t_score, e_score, b_score)
+        elif agg_strategy.aggregation_method == "min":
+            trust_score = min(t_score, e_score, b_score)
+        elif agg_strategy.aggregation_method == "geometric_mean":
+            trust_score = statistics.geometric_mean([t_score, e_score, b_score])
+        else:
+            # Default to weighted mean
+            trust_score = (
+                weights.trustworthiness * t_score +
+                weights.explainability * e_score +
+                weights.bias * b_score
+            )
         
         # Calculate confidence interval for trust score
         trust_ci: ConfidenceInterval = self._combine_confidence_intervals(t_ci, e_ci, b_ci, weights)
@@ -149,7 +183,7 @@ class Aggregator:
     def _calculate_confidence_interval(self, confidences: List[float], 
                                      scores: List[float]) -> ConfidenceInterval:
         """
-        Calculate confidence interval using ensemble statistics.
+        Calculate confidence interval using ensemble statistics and configurable parameters.
         
         Args:
             confidences: List of confidence values
@@ -176,15 +210,22 @@ class Aggregator:
         confidence_level: float = self.config.confidence_level
         alpha: float = 1 - confidence_level
         
+        # Use configurable statistical parameters
+        stat_config = self.config.statistical
+        
         # Calculate t-statistic for small samples (more accurate than z-score)
-        if len(scores) <= 30:
-            # Use t-distribution for small samples
-            t_critical = 2.776 if len(scores) == 3 else 2.571 if len(scores) == 4 else 2.447
+        if len(scores) <= stat_config.min_sample_size_for_t_dist:
+            # Use t-distribution for small samples with configurable values
+            t_critical = stat_config.t_critical_values.get(len(scores), 2.0)
         else:
-            # Use z-score for large samples
-            t_critical = 1.96 if confidence_level == 0.95 else 2.576
+            # Use z-score for large samples with configurable values
+            t_critical = stat_config.fallback_z_scores.get(confidence_level, 1.96)
         
         margin_of_error: float = t_critical * score_sem
+        
+        # Apply configurable confidence margin
+        if stat_config.use_continuity_correction:
+            margin_of_error += stat_config.confidence_margin
         
         lower_bound: float = mean_score - margin_of_error
         upper_bound: float = mean_score + margin_of_error
@@ -194,7 +235,7 @@ class Aggregator:
     def _combine_confidence_intervals(self, t_ci: ConfidenceInterval, e_ci: ConfidenceInterval,
                                     b_ci: ConfidenceInterval, weights) -> ConfidenceInterval:
         """
-        Combine confidence intervals from different categories.
+        Combine confidence intervals from different categories using configurable strategy.
         
         Args:
             t_ci, e_ci, b_ci: Confidence intervals for each category
@@ -203,9 +244,7 @@ class Aggregator:
         Returns:
             ConfidenceInterval: Combined confidence interval
         """
-        # Simple approach: use the minimum confidence across categories
-        # More sophisticated methods could be implemented
-        
+        # Collect confidence centers
         confidences: List[float] = []
         if t_ci.lower is not None and t_ci.upper is not None:
             confidences.append((t_ci.lower + t_ci.upper) / 2)
@@ -217,15 +256,31 @@ class Aggregator:
         if not confidences:
             return ConfidenceInterval(lower=None, upper=None)
         
-        # Use weighted average of confidence centers
-        weighted_confidence: float = (
-            weights.trustworthiness * (confidences[0] if len(confidences) > 0 else 0) +
-            weights.explainability * (confidences[1] if len(confidences) > 1 else 0) +
-            weights.bias * (confidences[2] if len(confidences) > 2 else 0)
-        )
+        # Use configurable combination method
+        agg_strategy = self.config.aggregation_strategy
+        stat_config = self.config.statistical
+        
+        if agg_strategy.confidence_combination_method == "weighted_average":
+            # Use weighted average of confidence centers
+            weighted_confidence: float = (
+                weights.trustworthiness * (confidences[0] if len(confidences) > 0 else 0) +
+                weights.explainability * (confidences[1] if len(confidences) > 1 else 0) +
+                weights.bias * (confidences[2] if len(confidences) > 2 else 0)
+            )
+        elif agg_strategy.confidence_combination_method == "minimum":
+            weighted_confidence = min(confidences)
+        elif agg_strategy.confidence_combination_method == "maximum":
+            weighted_confidence = max(confidences)
+        elif agg_strategy.confidence_combination_method == "geometric_mean":
+            weighted_confidence = statistics.geometric_mean(confidences)
+        elif agg_strategy.confidence_combination_method == "harmonic_mean":
+            weighted_confidence = statistics.harmonic_mean(confidences)
+        else:
+            # Default to weighted average
+            weighted_confidence = statistics.mean(confidences)
         
         # Create symmetric confidence interval around weighted confidence
-        margin: float = 0.05  # 5% margin
+        margin: float = stat_config.confidence_margin
         return ConfidenceInterval(
             lower=max(0, weighted_confidence - margin),
             upper=min(1, weighted_confidence + margin)

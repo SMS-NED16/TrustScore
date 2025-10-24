@@ -5,7 +5,7 @@ This module handles configuration settings, weights, and parameters
 for the TrustScore pipeline.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 import yaml
 import os
@@ -40,11 +40,99 @@ class SpanTaggerConfig(BaseModel):
     batch_size: int = Field(default=1, ge=1)
 
 
+class StatisticalConfig(BaseModel):
+    """Configuration for statistical analysis and confidence intervals"""
+    t_critical_values: Dict[int, float] = Field(default_factory=lambda: {
+        3: 2.776, 4: 2.571, 5: 2.447, 6: 2.365, 7: 2.306, 8: 2.262, 9: 2.228, 10: 2.201
+    })
+    confidence_margin: float = Field(default=0.05, ge=0, le=0.2)
+    min_sample_size_for_t_dist: int = Field(default=30)
+    fallback_z_scores: Dict[float, float] = Field(default_factory=lambda: {
+        0.90: 1.645, 0.95: 1.96, 0.99: 2.576
+    })
+    use_continuity_correction: bool = Field(default=True)
+
+
+class EnsembleConfig(BaseModel):
+    """Configuration for ensemble processing"""
+    min_judges_required: int = Field(default=1, ge=1)
+    max_judges_per_aspect: int = Field(default=10, ge=1)
+    require_consensus: bool = Field(default=False)
+    consensus_threshold: float = Field(default=0.7, ge=0.5, le=1.0)
+    outlier_detection: bool = Field(default=False)
+    outlier_threshold: float = Field(default=2.0)  # Standard deviations
+    use_robust_statistics: bool = Field(default=False)
+
+
+class ErrorHandlingConfig(BaseModel):
+    """Configuration for error handling and resilience"""
+    max_judge_failures: int = Field(default=2, ge=0)
+    fail_fast: bool = Field(default=False)
+    retry_failed_judges: bool = Field(default=False)
+    max_retries: int = Field(default=1, ge=0)
+    log_level: str = Field(default="INFO")
+    continue_on_span_errors: bool = Field(default=True)
+
+
+class SpanProcessingConfig(BaseModel):
+    """Configuration for span processing and validation"""
+    min_span_length: int = Field(default=1, ge=1)
+    max_span_length: int = Field(default=1000, ge=1)
+    allow_overlapping_spans: bool = Field(default=True)
+    max_spans_per_response: int = Field(default=50, ge=1)
+    span_validation_strict: bool = Field(default=True)
+    merge_adjacent_spans: bool = Field(default=False)
+    min_span_gap: int = Field(default=0, ge=0)
+
+
+class AggregationStrategyConfig(BaseModel):
+    """Configuration for aggregation strategies"""
+    aggregation_method: str = Field(default="weighted_mean")
+    use_robust_statistics: bool = Field(default=False)
+    outlier_removal: bool = Field(default=False)
+    confidence_combination_method: str = Field(default="weighted_average")
+    normalize_scores: bool = Field(default=True)
+    score_range: Tuple[float, float] = Field(default=(0.0, 10.0))
+
+
+class PerformanceConfig(BaseModel):
+    """Configuration for performance optimization"""
+    max_concurrent_judges: int = Field(default=3, ge=1)
+    judge_timeout_seconds: int = Field(default=30, ge=1)
+    enable_parallel_processing: bool = Field(default=True)
+    cache_judge_responses: bool = Field(default=False)
+    max_cache_size: int = Field(default=1000, ge=0)
+    cache_ttl_seconds: int = Field(default=3600, ge=0)
+    batch_processing: bool = Field(default=True)
+    max_batch_size: int = Field(default=10, ge=1)
+
+
+class OutputConfig(BaseModel):
+    """Configuration for output formatting and detail level"""
+    include_ensemble_statistics: bool = Field(default=True)
+    include_individual_judge_scores: bool = Field(default=False)
+    include_confidence_intervals: bool = Field(default=True)
+    precision_decimal_places: int = Field(default=3, ge=0, le=10)
+    include_raw_spans: bool = Field(default=False)
+    include_judge_metadata: bool = Field(default=False)
+    output_format: str = Field(default="json")
+    verbose_logging: bool = Field(default=False)
+
+
 class TrustScoreConfig(BaseModel):
     """Main configuration for TrustScore pipeline"""
     span_tagger: SpanTaggerConfig = Field(default_factory=SpanTaggerConfig)
     judges: Dict[str, JudgeConfig] = Field(default_factory=dict)
     aggregation_weights: AggregationWeights = Field(default_factory=AggregationWeights)
+    
+    # New configuration sections
+    statistical: StatisticalConfig = Field(default_factory=StatisticalConfig)
+    ensemble: EnsembleConfig = Field(default_factory=EnsembleConfig)
+    error_handling: ErrorHandlingConfig = Field(default_factory=ErrorHandlingConfig)
+    span_processing: SpanProcessingConfig = Field(default_factory=SpanProcessingConfig)
+    aggregation_strategy: AggregationStrategyConfig = Field(default_factory=AggregationStrategyConfig)
+    performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
+    output: OutputConfig = Field(default_factory=OutputConfig)
     
     # Confidence interval settings
     confidence_level: float = Field(default=0.95, ge=0.5, le=0.99)

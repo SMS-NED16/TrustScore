@@ -81,14 +81,22 @@ Please analyze this response for errors and return the JSON format specified in 
             raise ValueError(f"Failed to parse LLM response as JSON: {str(e)}")
     
     def _create_spans_level_tags(self, spans_data: Dict[str, Any], response_text: str) -> SpansLevelTags:
-        """Create SpansLevelTags object from parsed data."""
+        """Create SpansLevelTags object from parsed data with configurable validation."""
         spans_level_tags: SpansLevelTags = SpansLevelTags()
         
         if "spans" not in spans_data:
             return spans_level_tags
         
+        # Get span processing configuration
+        span_config = self.config.span_processing if hasattr(self.config, 'span_processing') else None
+        
+        span_count = 0
         for span_id, span_info in spans_data["spans"].items():
             try:
+                # Check max spans limit
+                if span_config and span_count >= span_config.max_spans_per_response:
+                    break
+                
                 # Validate span data
                 start: int = int(span_info["start"])
                 end: int = int(span_info["end"])
@@ -96,9 +104,27 @@ Please analyze this response for errors and return the JSON format specified in 
                 subtype: str = span_info["subtype"]
                 explanation: str = span_info["explanation"]
                 
-                # Validate character positions
-                if start < 0 or end > len(response_text) or start >= end:
-                    continue
+                # Apply configurable span validation
+                if span_config:
+                    # Check span length constraints
+                    span_length = end - start
+                    if span_length < span_config.min_span_length or span_length > span_config.max_span_length:
+                        continue
+                    
+                    # Check character position bounds
+                    if start < 0 or end > len(response_text) or start >= end:
+                        if span_config.span_validation_strict:
+                            continue
+                        else:
+                            # Adjust bounds if not strict
+                            start = max(0, start)
+                            end = min(len(response_text), end)
+                            if start >= end:
+                                continue
+                else:
+                    # Default validation
+                    if start < 0 or end > len(response_text) or start >= end:
+                        continue
                 
                 # Validate error type
                 try:
@@ -116,12 +142,57 @@ Please analyze this response for errors and return the JSON format specified in 
                 )
                 
                 spans_level_tags.add_span(span_id, span_tag)
+                span_count += 1
                 
             except (KeyError, ValueError, TypeError) as e:
                 # Skip invalid spans
                 continue
         
+        # Apply span merging if configured
+        if span_config and span_config.merge_adjacent_spans:
+            spans_level_tags = self._merge_adjacent_spans(spans_level_tags, response_text)
+        
         return spans_level_tags
+    
+    def _merge_adjacent_spans(self, spans_level_tags: SpansLevelTags, response_text: str) -> SpansLevelTags:
+        """Merge adjacent spans if they are close enough."""
+        if not hasattr(self.config, 'span_processing'):
+            return spans_level_tags
+        
+        span_config = self.config.span_processing
+        merged_spans = SpansLevelTags()
+        spans_list = list(spans_level_tags.spans.items())
+        
+        if not spans_list:
+            return merged_spans
+        
+        # Sort spans by start position
+        spans_list.sort(key=lambda x: x[1].start)
+        
+        current_span_id, current_span = spans_list[0]
+        merged_spans.add_span(current_span_id, current_span)
+        
+        for span_id, span in spans_list[1:]:
+            # Check if spans are close enough to merge
+            gap = span.start - current_span.end
+            if gap <= span_config.min_span_gap and span.type == current_span.type:
+                # Merge spans
+                current_span = SpanTag(
+                    start=current_span.start,
+                    end=span.end,
+                    type=current_span.type,
+                    subtype=current_span.subtype,
+                    explanation=f"{current_span.explanation}; {span.explanation}"
+                )
+                # Update the last added span
+                merged_spans.spans[current_span_id] = current_span
+            else:
+                # Add as separate span
+                merged_spans.add_span(span_id, span)
+                current_span_id = span_id
+                current_span = span
+        
+        return merged_spans
     
     def batch_tag_spans(self, llm_records: List[LLMRecord]) -> List[SpansLevelTags]:
         """

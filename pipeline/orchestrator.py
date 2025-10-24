@@ -6,6 +6,7 @@ the span tagger, judges, and aggregator components.
 """
 
 import asyncio
+import statistics
 from typing import Dict, List, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -154,7 +155,7 @@ class TrustScorePipeline:
     
     def _grade_spans(self, llm_record: LLMRecord, spans_tags: SpansLevelTags) -> GradedSpans:
         """
-        Grade spans using ensemble of judges for each aspect.
+        Grade spans using ensemble of judges for each aspect with configurable error handling.
         
         Args:
             llm_record: The original LLM input/output pair
@@ -164,6 +165,8 @@ class TrustScorePipeline:
             GradedSpans: Collection of graded spans with ensemble analyses
         """
         graded_spans: GradedSpans = GradedSpans()
+        ensemble_config = self.config.ensemble
+        error_config = self.config.error_handling
         
         for span_id, span in spans_tags.spans.items():
             graded_span: GradedSpan = GradedSpan(
@@ -183,22 +186,77 @@ class TrustScorePipeline:
             elif span.type.value == "E":  # Explainability
                 aspect_judges = self.judges["explainability"]
             
+            # Limit judges per aspect if configured
+            if len(aspect_judges) > ensemble_config.max_judges_per_aspect:
+                # Take first N judges
+                aspect_judges = dict(list(aspect_judges.items())[:ensemble_config.max_judges_per_aspect])
+            
+            # Track judge failures
+            judge_failures = 0
+            successful_analyses = 0
+            
             # Get analyses from all judges for this aspect
             for judge_name, judge in aspect_judges.items():
                 try:
                     analysis = judge.analyze_span(llm_record, span)
                     graded_span.add_judge_analysis(judge_name, analysis)
+                    successful_analyses += 1
                 except Exception as e:
-                    # Log error but continue with other judges
-                    print(f"Error from judge {judge_name}: {str(e)}")
+                    judge_failures += 1
+                    if error_config.log_level in ["DEBUG", "INFO", "WARNING"]:
+                        print(f"Error from judge {judge_name}: {str(e)}")
+                    
+                    # Check if we should fail fast
+                    if error_config.fail_fast and judge_failures > error_config.max_judge_failures:
+                        if error_config.continue_on_span_errors:
+                            break
+                        else:
+                            raise RuntimeError(f"Too many judge failures ({judge_failures})")
+                    
                     continue
             
-            # Only add span if we got at least one analysis
-            if graded_span.analysis:
-                graded_spans.add_graded_span(span_id, graded_span)
+            # Check if we have enough analyses based on configuration
+            if successful_analyses >= ensemble_config.min_judges_required:
+                # Apply consensus requirements if configured
+                if ensemble_config.require_consensus:
+                    if self._check_consensus(graded_span, ensemble_config.consensus_threshold):
+                        graded_spans.add_graded_span(span_id, graded_span)
+                else:
+                    graded_spans.add_graded_span(span_id, graded_span)
+            elif not error_config.continue_on_span_errors:
+                raise RuntimeError(f"Insufficient judge analyses: {successful_analyses} < {ensemble_config.min_judges_required}")
         
         return graded_spans
     
+    def _check_consensus(self, graded_span: GradedSpan, consensus_threshold: float) -> bool:
+        """
+        Check if there's consensus among judges for a span.
+        
+        Args:
+            graded_span: The graded span to check
+            consensus_threshold: Threshold for consensus (0.0 to 1.0)
+            
+        Returns:
+            bool: True if consensus is reached
+        """
+        if len(graded_span.analysis) < 2:
+            return True  # No consensus needed for single judge
+        
+        # Get severity scores from all judges
+        severity_scores = [analysis.severity_score for analysis in graded_span.analysis.values()]
+        
+        # Calculate coefficient of variation as a measure of consensus
+        mean_score = statistics.mean(severity_scores)
+        if mean_score == 0:
+            return True  # All scores are 0, perfect consensus
+        
+        std_score = statistics.stdev(severity_scores)
+        cv = std_score / abs(mean_score)  # Coefficient of variation
+        
+        # Lower CV means higher consensus
+        consensus_achieved = cv <= (1.0 - consensus_threshold)
+        
+        return consensus_achieved
     
     def get_pipeline_status(self) -> Dict[str, Any]:
         """
@@ -238,7 +296,25 @@ class TrustScorePipeline:
                     "explainability": self.config.aggregation_weights.explainability,
                     "bias": self.config.aggregation_weights.bias
                 },
-                "confidence_level": self.config.confidence_level
+                "confidence_level": self.config.confidence_level,
+                "aggregation_method": self.config.aggregation_strategy.aggregation_method,
+                "use_robust_statistics": self.config.aggregation_strategy.use_robust_statistics
+            },
+            "ensemble_config": {
+                "min_judges_required": self.config.ensemble.min_judges_required,
+                "require_consensus": self.config.ensemble.require_consensus,
+                "consensus_threshold": self.config.ensemble.consensus_threshold,
+                "outlier_detection": self.config.ensemble.outlier_detection
+            },
+            "error_handling": {
+                "max_judge_failures": self.config.error_handling.max_judge_failures,
+                "fail_fast": self.config.error_handling.fail_fast,
+                "log_level": self.config.error_handling.log_level
+            },
+            "performance": {
+                "max_concurrent_judges": self.config.performance.max_concurrent_judges,
+                "enable_parallel_processing": self.config.performance.enable_parallel_processing,
+                "batch_processing": self.config.performance.batch_processing
             }
         }
 

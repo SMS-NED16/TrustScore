@@ -162,6 +162,62 @@ class GradedSpan(BaseModel):
             return 0.0
         confidences = [analysis.confidence for analysis in self.analysis.values()]
         return statistics.median(confidences)
+    
+    def format_for_output(self, output_config) -> Dict[str, Any]:
+        """Format span data for output based on configuration."""
+        base_data = {
+            "start": self.start,
+            "end": self.end,
+            "type": self.type.value,
+            "subtype": self.subtype,
+            "explanation": self.explanation
+        }
+        
+        if output_config.include_ensemble_statistics:
+            stats = self.get_ensemble_statistics()
+            base_data["ensemble_statistics"] = stats
+        
+        if output_config.include_individual_judge_scores:
+            judge_scores = {}
+            for judge_name, analysis in self.analysis.items():
+                judge_scores[judge_name] = {
+                    "severity_score": analysis.severity_score,
+                    "confidence": analysis.confidence,
+                    "severity_bucket": analysis.severity_bucket.value
+                }
+            base_data["judge_scores"] = judge_scores
+        
+        if output_config.include_judge_metadata:
+            judge_metadata = {}
+            for judge_name, analysis in self.analysis.items():
+                judge_metadata[judge_name] = {
+                    "indicators": {
+                        "centrality": analysis.indicators.centrality,
+                        "domain_sensitivity": analysis.indicators.domain_sensitivity,
+                        "harm_potential": analysis.indicators.harm_potential,
+                        "instruction_criticality": analysis.indicators.instruction_criticality
+                    },
+                    "weights": {
+                        "centrality": analysis.weights.centrality,
+                        "domain_sensitivity": analysis.weights.domain_sensitivity,
+                        "harm_potential": analysis.weights.harm_potential,
+                        "instruction_criticality": analysis.weights.instruction_criticality
+                    }
+                }
+            base_data["judge_metadata"] = judge_metadata
+        
+        # Apply precision formatting
+        if hasattr(output_config, 'precision_decimal_places'):
+            precision = output_config.precision_decimal_places
+            for key, value in base_data.items():
+                if isinstance(value, float):
+                    base_data[key] = round(value, precision)
+                elif isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, float):
+                            base_data[key][sub_key] = round(sub_value, precision)
+        
+        return base_data
 
 
 class GradedSpans(BaseModel):
@@ -220,3 +276,94 @@ class AggregatedOutput(BaseModel):
     def add_error_summary(self, error_id: str, error_summary: ErrorSummary) -> None:
         """Add an error summary"""
         self.errors[error_id] = error_summary
+    
+    def format_for_output(self, output_config) -> Dict[str, Any]:
+        """Format aggregated output based on configuration."""
+        base_data = {
+            "task_prompt": self.task_prompt,
+            "llm_response": self.llm_response,
+            "model_metadata": {
+                "model": self.model_metadata.model,
+                "generated_on": self.model_metadata.generated_on.isoformat() if self.model_metadata.generated_on else None
+            }
+        }
+        
+        if output_config.include_confidence_intervals:
+            base_data["summary"] = {
+                "agg_score_T": self.summary.agg_score_T,
+                "agg_score_T_ci": {
+                    "lower": self.summary.agg_score_T_ci.lower,
+                    "upper": self.summary.agg_score_T_ci.upper
+                },
+                "agg_score_E": self.summary.agg_score_E,
+                "agg_score_E_ci": {
+                    "lower": self.summary.agg_score_E_ci.lower,
+                    "upper": self.summary.agg_score_E_ci.upper
+                },
+                "agg_score_B": self.summary.agg_score_B,
+                "agg_score_B_ci": {
+                    "lower": self.summary.agg_score_B_ci.lower,
+                    "upper": self.summary.agg_score_B_ci.upper
+                },
+                "trust_score": self.summary.trust_score,
+                "trust_score_ci": {
+                    "lower": self.summary.trust_score_ci.lower,
+                    "upper": self.summary.trust_score_ci.upper
+                }
+            }
+        else:
+            base_data["summary"] = {
+                "agg_score_T": self.summary.agg_score_T,
+                "agg_score_E": self.summary.agg_score_E,
+                "agg_score_B": self.summary.agg_score_B,
+                "trust_score": self.summary.trust_score
+            }
+        
+        if output_config.include_raw_spans:
+            base_data["raw_spans"] = {}
+            for span_id, span in self.errors.items():
+                base_data["raw_spans"][span_id] = {
+                    "type": span.type.value,
+                    "subtype": span.subtype,
+                    "severity_bucket": span.severity_bucket.value,
+                    "severity_score": span.severity_score,
+                    "confidence": {
+                        "lower": span.confidence.lower,
+                        "upper": span.confidence.upper
+                    }
+                }
+        else:
+            base_data["errors"] = {}
+            for error_id, error_summary in self.errors.items():
+                base_data["errors"][error_id] = {
+                    "type": error_summary.type.value,
+                    "subtype": error_summary.subtype,
+                    "severity_bucket": error_summary.severity_bucket.value,
+                    "severity_score": error_summary.severity_score
+                }
+                if output_config.include_confidence_intervals:
+                    base_data["errors"][error_id]["confidence"] = {
+                        "lower": error_summary.confidence.lower,
+                        "upper": error_summary.confidence.upper
+                    }
+        
+        # Apply precision formatting
+        if hasattr(output_config, 'precision_decimal_places'):
+            precision = output_config.precision_decimal_places
+            self._apply_precision_formatting(base_data, precision)
+        
+        return base_data
+    
+    def _apply_precision_formatting(self, data: Dict[str, Any], precision: int) -> None:
+        """Apply precision formatting to float values recursively."""
+        for key, value in data.items():
+            if isinstance(value, float):
+                data[key] = round(value, precision)
+            elif isinstance(value, dict):
+                self._apply_precision_formatting(value, precision)
+            elif isinstance(value, list):
+                for i, item in enumerate(value):
+                    if isinstance(item, float):
+                        value[i] = round(item, precision)
+                    elif isinstance(item, dict):
+                        self._apply_precision_formatting(item, precision)
