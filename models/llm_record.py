@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Union, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
+import statistics
 
 
 class ErrorType(str, Enum):
@@ -129,6 +130,38 @@ class GradedSpan(BaseModel):
         if not self.analysis:
             return 0.0
         return sum(analysis.confidence for analysis in self.analysis.values()) / len(self.analysis)
+    
+    def get_ensemble_statistics(self) -> Dict[str, Any]:
+        """Get ensemble statistics for this span."""
+        if not self.analysis:
+            return {}
+        
+        severity_scores = [analysis.severity_score for analysis in self.analysis.values()]
+        confidences = [analysis.confidence for analysis in self.analysis.values()]
+        
+        return {
+            "mean_severity": statistics.mean(severity_scores),
+            "std_severity": statistics.stdev(severity_scores) if len(severity_scores) > 1 else 0,
+            "mean_confidence": statistics.mean(confidences),
+            "std_confidence": statistics.stdev(confidences) if len(confidences) > 1 else 0,
+            "judge_count": len(self.analysis),
+            "severity_range": (min(severity_scores), max(severity_scores)),
+            "confidence_range": (min(confidences), max(confidences))
+        }
+    
+    def get_robust_average_severity_score(self) -> float:
+        """Calculate robust average using median instead of mean."""
+        if not self.analysis:
+            return 0.0
+        severity_scores = [analysis.severity_score for analysis in self.analysis.values()]
+        return statistics.median(severity_scores)
+    
+    def get_robust_average_confidence(self) -> float:
+        """Calculate robust average confidence using median."""
+        if not self.analysis:
+            return 0.0
+        confidences = [analysis.confidence for analysis in self.analysis.values()]
+        return statistics.median(confidences)
 
 
 class GradedSpans(BaseModel):

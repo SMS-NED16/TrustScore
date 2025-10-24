@@ -105,11 +105,23 @@ class TrustScoreConfig(BaseModel):
 
 
 # Default configuration
+# Update the default configuration to include multiple judges per aspect
 DEFAULT_CONFIG = TrustScoreConfig(
     judges={
-        "judge_1": JudgeConfig(name="judge_1", model="gpt-4o"),
-        "judge_2": JudgeConfig(name="judge_2", model="gpt-4o"),
-        "judge_3": JudgeConfig(name="judge_3", model="gpt-4o")
+        # Trustworthiness ensemble (3 judges)
+        "trust_judge_1": JudgeConfig(name="trust_judge_1", model="gpt-4o"),
+        "trust_judge_2": JudgeConfig(name="trust_judge_2", model="gpt-4o"),  # Can use different models
+        "trust_judge_3": JudgeConfig(name="trust_judge_3", model="gpt-4o"),
+        
+        # Bias ensemble (3 judges)
+        "bias_judge_1": JudgeConfig(name="bias_judge_1", model="gpt-4o"),
+        "bias_judge_2": JudgeConfig(name="bias_judge_2", model="gpt-4o"),
+        "bias_judge_3": JudgeConfig(name="bias_judge_3", model="gpt-4o"),
+        
+        # Explainability ensemble (3 judges)
+        "explain_judge_1": JudgeConfig(name="explain_judge_1", model="gpt-4o"),
+        "explain_judge_2": JudgeConfig(name="explain_judge_2", model="gpt-4o"),
+        "explain_judge_3": JudgeConfig(name="explain_judge_3", model="gpt-4o"),
     }
 )
 

@@ -149,7 +149,7 @@ class Aggregator:
     def _calculate_confidence_interval(self, confidences: List[float], 
                                      scores: List[float]) -> ConfidenceInterval:
         """
-        Calculate confidence interval for a set of scores.
+        Calculate confidence interval using ensemble statistics.
         
         Args:
             confidences: List of confidence values
@@ -161,23 +161,31 @@ class Aggregator:
         if not confidences or not scores:
             return ConfidenceInterval(lower=None, upper=None)
         
-        # Use bootstrap-like approach for confidence interval
-        # For simplicity, we'll use the mean confidence and score variance
-        
+        # Use ensemble statistics for better confidence intervals
         mean_confidence: float = statistics.mean(confidences)
-        score_variance: float = statistics.variance(scores) if len(scores) > 1 else 0
+        mean_score: float = statistics.mean(scores)
         
-        # Calculate confidence interval bounds
+        # Calculate standard error of the mean
+        if len(scores) > 1:
+            score_std: float = statistics.stdev(scores)
+            score_sem: float = score_std / (len(scores) ** 0.5)  # Standard Error of Mean
+        else:
+            score_sem: float = 0
+        
+        # Use confidence level from config
         confidence_level: float = self.config.confidence_level
         alpha: float = 1 - confidence_level
         
-        # Simple approximation using normal distribution
-        # In practice, you might want to use more sophisticated methods
-        z_score: float = 1.96 if confidence_level == 0.95 else 2.576  # Approximate z-scores
+        # Calculate t-statistic for small samples (more accurate than z-score)
+        if len(scores) <= 30:
+            # Use t-distribution for small samples
+            t_critical = 2.776 if len(scores) == 3 else 2.571 if len(scores) == 4 else 2.447
+        else:
+            # Use z-score for large samples
+            t_critical = 1.96 if confidence_level == 0.95 else 2.576
         
-        margin_of_error: float = z_score * (score_variance ** 0.5) / (len(scores) ** 0.5)
+        margin_of_error: float = t_critical * score_sem
         
-        mean_score: float = statistics.mean(scores)
         lower_bound: float = mean_score - margin_of_error
         upper_bound: float = mean_score + margin_of_error
         

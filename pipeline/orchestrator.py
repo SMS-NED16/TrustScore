@@ -41,28 +41,38 @@ class TrustScorePipeline:
         self._initialize_components()
     
     def _initialize_components(self) -> None:
-        """Initialize all pipeline components."""
+        """Initialize all pipeline components with ensemble judges."""
         # Initialize span tagger
         if self.use_mock:
             self.span_tagger: SpanTagger = MockSpanTagger(self.config.span_tagger)
         else:
             self.span_tagger: SpanTagger = SpanTagger(self.config.span_tagger, self.api_key)
         
-        # Initialize judges
-        self.judges: Dict[str, BaseJudge] = {}
+        # Initialize judges by aspect (ensemble approach)
+        self.judges: Dict[str, Dict[str, BaseJudge]] = {
+            "trustworthiness": {},
+            "bias": {},
+            "explainability": {}
+        }
+        
         for judge_name, judge_config in self.config.judges.items():
             if not judge_config.enabled:
                 continue
                 
-            if judge_name.startswith("trustworthiness") or "trust" in judge_name.lower():
-                self.judges[judge_name] = TrustworthinessJudge(judge_config, self.config, self.api_key)
-            elif judge_name.startswith("bias") or "bias" in judge_name.lower():
-                self.judges[judge_name] = BiasJudge(judge_config, self.config, self.api_key)
-            elif judge_name.startswith("explainability") or "explain" in judge_name.lower():
-                self.judges[judge_name] = ExplainabilityJudge(judge_config, self.config, self.api_key)
+            # Route judges by name pattern
+            if "trust" in judge_name.lower():
+                judge = TrustworthinessJudge(judge_config, self.config, self.api_key)
+                self.judges["trustworthiness"][judge_name] = judge
+            elif "bias" in judge_name.lower():
+                judge = BiasJudge(judge_config, self.config, self.api_key)
+                self.judges["bias"][judge_name] = judge
+            elif "explain" in judge_name.lower():
+                judge = ExplainabilityJudge(judge_config, self.config, self.api_key)
+                self.judges["explainability"][judge_name] = judge
             else:
                 # Default to trustworthiness judge for generic judges
-                self.judges[judge_name] = TrustworthinessJudge(judge_config, self.config, self.api_key)
+                judge = TrustworthinessJudge(judge_config, self.config, self.api_key)
+                self.judges["trustworthiness"][judge_name] = judge
         
         # Initialize aggregator
         self.aggregator: Aggregator = Aggregator(self.config)
@@ -144,18 +154,17 @@ class TrustScorePipeline:
     
     def _grade_spans(self, llm_record: LLMRecord, spans_tags: SpansLevelTags) -> GradedSpans:
         """
-        Grade all spans using available judges.
+        Grade spans using ensemble of judges for each aspect.
         
         Args:
-            llm_record: Original LLM input/output pair
-            spans_tags: Identified error spans
+            llm_record: The original LLM input/output pair
+            spans_tags: Collection of identified error spans
             
         Returns:
-            GradedSpans: Collection of graded spans
+            GradedSpans: Collection of graded spans with ensemble analyses
         """
         graded_spans: GradedSpans = GradedSpans()
         
-        # Process each span
         for span_id, span in spans_tags.spans.items():
             graded_span: GradedSpan = GradedSpan(
                 start=span.start,
@@ -166,49 +175,30 @@ class TrustScorePipeline:
             )
             
             # Get appropriate judges for this error type
-            relevant_judges: Dict[str, BaseJudge] = self._get_relevant_judges(span.type)
+            aspect_judges: Dict[str, BaseJudge] = {}
+            if span.type.value == "T":  # Trustworthiness
+                aspect_judges = self.judges["trustworthiness"]
+            elif span.type.value == "B":  # Bias
+                aspect_judges = self.judges["bias"]
+            elif span.type.value == "E":  # Explainability
+                aspect_judges = self.judges["explainability"]
             
-            # Grade with each relevant judge
-            for judge_name, judge in relevant_judges.items():
+            # Get analyses from all judges for this aspect
+            for judge_name, judge in aspect_judges.items():
                 try:
                     analysis = judge.analyze_span(llm_record, span)
                     graded_span.add_judge_analysis(judge_name, analysis)
                 except Exception as e:
-                    print(f"Error in judge {judge_name}: {str(e)}")
-                    # Continue with other judges
+                    # Log error but continue with other judges
+                    print(f"Error from judge {judge_name}: {str(e)}")
+                    continue
             
-            graded_spans.add_graded_span(span_id, graded_span)
+            # Only add span if we got at least one analysis
+            if graded_span.analysis:
+                graded_spans.add_graded_span(span_id, graded_span)
         
         return graded_spans
     
-    def _get_relevant_judges(self, error_type) -> Dict[str, BaseJudge]:
-        """
-        Get judges relevant to the error type.
-        
-        Args:
-            error_type: The error type (T/B/E)
-            
-        Returns:
-            Dict of relevant judges
-        """
-        relevant_judges: Dict[str, BaseJudge] = {}
-        
-        for judge_name, judge in self.judges.items():
-            # Simple heuristic: match judge name with error type
-            if error_type.value.lower() in judge_name.lower():
-                relevant_judges[judge_name] = judge
-            elif isinstance(judge, TrustworthinessJudge) and error_type.value == "T":
-                relevant_judges[judge_name] = judge
-            elif isinstance(judge, BiasJudge) and error_type.value == "B":
-                relevant_judges[judge_name] = judge
-            elif isinstance(judge, ExplainabilityJudge) and error_type.value == "E":
-                relevant_judges[judge_name] = judge
-        
-        # If no specific judges found, use all judges
-        if not relevant_judges:
-            relevant_judges = self.judges
-        
-        return relevant_judges
     
     def get_pipeline_status(self) -> Dict[str, Any]:
         """
@@ -217,19 +207,30 @@ class TrustScorePipeline:
         Returns:
             Dict with pipeline status information
         """
+        # Flatten judges for status display
+        all_judges = {}
+        for aspect, judges in self.judges.items():
+            for name, judge in judges.items():
+                all_judges[f"{aspect}_{name}"] = {
+                    "type": type(judge).__name__,
+                    "model": judge.config.model,
+                    "enabled": judge.config.enabled,
+                    "aspect": aspect
+                }
+        
         return {
             "span_tagger": {
                 "type": type(self.span_tagger).__name__,
                 "model": self.config.span_tagger.model,
                 "mock_mode": self.use_mock
             },
-            "judges": {
-                name: {
-                    "type": type(judge).__name__,
-                    "model": judge.config.model,
-                    "enabled": judge.config.enabled
+            "judges": all_judges,
+            "judge_ensemble": {
+                aspect: {
+                    "count": len(judges),
+                    "judges": list(judges.keys())
                 }
-                for name, judge in self.judges.items()
+                for aspect, judges in self.judges.items()
             },
             "aggregator": {
                 "weights": {
