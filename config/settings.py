@@ -7,16 +7,44 @@ for the TrustScore pipeline.
 
 from typing import Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
+from enum import Enum
 import yaml
 import os
 
 
-class JudgeConfig(BaseModel):
+class LLMProvider(str, Enum):
+    """Supported LLM providers"""
+    OPENAI = "openai"
+    LLAMA = "llama"
+    ANTHROPIC = "anthropic"
+
+
+class LLMConfig(BaseModel):
+    """Base configuration for LLM providers"""
+    provider: LLMProvider = Field(default=LLMProvider.OPENAI)
+    model: str = Field(default="gpt-4o")
+    fine_tuned_model: Optional[str] = None
+    model_path: Optional[str] = None  # For local models like LLaMA
+    api_key: Optional[str] = None
+    temperature: float = Field(default=0.1, ge=0, le=2)
+    max_tokens: int = Field(default=2000, ge=1)
+    batch_size: int = Field(default=1, ge=1)
+    
+    # LLaMA-specific settings
+    device: str = Field(default="cuda")  # cuda, cpu, mps
+    torch_dtype: str = Field(default="float16")  # float16, float32
+    use_cache: bool = Field(default=True)
+    
+    # Fine-tuning settings
+    fine_tuned: bool = Field(default=False)
+    fine_tuning_data_path: Optional[str] = None
+    fine_tuning_epochs: int = Field(default=3, ge=1)
+    learning_rate: float = Field(default=5e-5, ge=1e-6, le=1e-3)
+
+
+class JudgeConfig(LLMConfig):
     """Configuration for individual judges"""
     name: str
-    model: str
-    temperature: float = Field(default=0.1, ge=0, le=2)
-    max_tokens: int = Field(default=1000, ge=1)
     enabled: bool = Field(default=True)
 
 
@@ -32,12 +60,9 @@ class AggregationWeights(BaseModel):
             raise ValueError(f"Weights must sum to 1.0, got {total}")
 
 
-class SpanTaggerConfig(BaseModel):
+class SpanTaggerConfig(LLMConfig):
     """Configuration for the span tagger module"""
-    model: str = Field(default="gpt-4o")
-    temperature: float = Field(default=0.1, ge=0, le=2)
-    max_tokens: int = Field(default=2000, ge=1)
-    batch_size: int = Field(default=1, ge=1)
+    pass
 
 
 class StatisticalConfig(BaseModel):

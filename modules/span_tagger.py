@@ -8,10 +8,10 @@ trustworthiness, bias, and explainability errors in LLM responses.
 import json
 import re
 from typing import Dict, List, Optional, Tuple
-from openai import OpenAI
 from models.llm_record import LLMRecord, SpansLevelTags, SpanTag, ErrorType
 from config.settings import SpanTaggerConfig
 from prompts.system_prompts import SPAN_TAGGER_PROMPT
+from modules.llm_providers.factory import LLMProviderFactory
 
 
 class SpanTagger:
@@ -24,7 +24,11 @@ class SpanTagger:
     
     def __init__(self, config: SpanTaggerConfig, api_key: Optional[str] = None) -> None:
         self.config: SpanTaggerConfig = config
-        self.client: Optional[OpenAI] = OpenAI(api_key=api_key) if api_key else None
+        if api_key:
+            self.config.api_key = api_key
+        
+        # Create LLM provider
+        self.llm_provider = LLMProviderFactory.create_span_tagger_provider(config)
         
         # System prompt for the span tagger
         self.system_prompt: str = SPAN_TAGGER_PROMPT
@@ -39,8 +43,8 @@ class SpanTagger:
         Returns:
             SpansLevelTags: Collection of identified error spans
         """
-        if not self.client:
-            raise ValueError("OpenAI client not initialized. Please provide API key.")
+        if not self.llm_provider.is_available():
+            raise ValueError(f"LLM provider {self.config.provider} not available")
         
         user_prompt: str = f"""Prompt: {llm_record.task_prompt}
 
@@ -49,17 +53,8 @@ Response: {llm_record.llm_response}
 Please analyze this response for errors and return the JSON format specified in the system prompt."""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens
-            )
-            
-            content: str = response.choices[0].message.content
+            messages = self.llm_provider.format_messages(self.system_prompt, user_prompt)
+            content: str = self.llm_provider.generate(messages)
             spans_data: Dict[str, Any] = self._parse_response(content)
             
             return self._create_spans_level_tags(spans_data, llm_record.llm_response)

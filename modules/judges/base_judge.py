@@ -7,10 +7,10 @@ for LLM judges that score error severity.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from openai import OpenAI
 from models.llm_record import LLMRecord, SpanTag, JudgeAnalysis, JudgeIndicators, JudgeWeights, SeverityBucket
 from config.settings import JudgeConfig, TrustScoreConfig
 from prompts.system_prompts import BASE_JUDGE_PROMPT
+from modules.llm_providers.factory import LLMProviderFactory
 
 
 class BaseJudge(ABC):
@@ -26,7 +26,11 @@ class BaseJudge(ABC):
     def __init__(self, config: JudgeConfig, trust_score_config: TrustScoreConfig, api_key: Optional[str] = None) -> None:
         self.config: JudgeConfig = config
         self.trust_score_config: TrustScoreConfig = trust_score_config
-        self.client: Optional[OpenAI] = OpenAI(api_key=api_key) if api_key else None
+        if api_key:
+            self.config.api_key = api_key
+        
+        # Create LLM provider
+        self.llm_provider = LLMProviderFactory.create_judge_provider(config)
         
         # Base system prompt for judges
         self.system_prompt: str = BASE_JUDGE_PROMPT
@@ -46,22 +50,13 @@ class BaseJudge(ABC):
         pass
     
     def _call_llm(self, user_prompt: str) -> Dict[str, Any]:
-        """Make API call to the LLM."""
-        if not self.client:
-            raise ValueError("OpenAI client not initialized. Please provide API key.")
+        """Make API call to the LLM using configured provider."""
+        if not self.llm_provider.is_available():
+            raise ValueError(f"LLM provider {self.config.provider} not available")
         
         try:
-            response = self.client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens
-            )
-            
-            content: str = response.choices[0].message.content
+            messages = self.llm_provider.format_messages(self.system_prompt, user_prompt)
+            content: str = self.llm_provider.generate(messages)
             return self._parse_response(content)
             
         except Exception as e:
