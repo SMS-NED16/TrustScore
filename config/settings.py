@@ -17,6 +17,7 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     LLAMA = "llama"
     ANTHROPIC = "anthropic"
+    VLLM = "vllm"
 
 
 class LLMConfig(BaseModel):

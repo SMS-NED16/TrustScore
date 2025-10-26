@@ -49,6 +49,68 @@ class BaseJudge(ABC):
         """
         pass
     
+    def batch_analyze_spans(self, span_records: List[tuple[LLMRecord, SpanTag]]) -> List[JudgeAnalysis]:
+        """
+        Analyze multiple spans using batch processing for efficiency.
+        
+        Args:
+            span_records: List of (LLMRecord, SpanTag) tuples to analyze
+            
+        Returns:
+            List of JudgeAnalysis for each span
+        """
+        if not self.llm_provider.is_available():
+            raise ValueError(f"LLM provider {self.config.provider} not available")
+        
+        # Create user prompts for all spans
+        user_prompts = []
+        for llm_record, span in span_records:
+            user_prompt = self._create_user_prompt(llm_record, span)
+            user_prompts.append(user_prompt)
+        
+        # Batch generate using the provider
+        messages_list = [
+            self.llm_provider.format_messages(self.system_prompt, prompt)
+            for prompt in user_prompts
+        ]
+        
+        try:
+            # Use batch_generate if available
+            if hasattr(self.llm_provider, 'batch_generate'):
+                contents = self.llm_provider.batch_generate(messages_list)
+            else:
+                # Fallback to individual calls
+                contents = []
+                for messages in messages_list:
+                    content = self.llm_provider.generate(messages)
+                    contents.append(content)
+            
+            # Parse all responses
+            analyses = []
+            for content in contents:
+                analysis_data = self._parse_response(content)
+                analysis = self._create_judge_analysis(analysis_data)
+                analyses.append(analysis)
+            
+            return analyses
+            
+        except Exception as e:
+            raise RuntimeError(f"Error in batch judge analysis: {str(e)}")
+    
+    def _create_user_prompt(self, llm_record: LLMRecord, span: SpanTag) -> str:
+        """Create user prompt for a specific span analysis"""
+        return f"""Prompt: {llm_record.task_prompt}
+
+Response: {llm_record.llm_response}
+
+Error Span:
+- Position: {span.start}-{span.end}
+- Type: {span.type.value}
+- Subtype: {span.subtype}
+- Explanation: {span.explanation}
+
+Please analyze this error span for severity."""
+    
     def _call_llm(self, user_prompt: str) -> Dict[str, Any]:
         """Make API call to the LLM using configured provider."""
         if not self.llm_provider.is_available():

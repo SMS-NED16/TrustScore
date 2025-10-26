@@ -8,6 +8,7 @@ from typing import Optional
 from modules.llm_providers.base_llm import BaseLLMProvider
 from modules.llm_providers.openai_provider import OpenAIProvider
 from modules.llm_providers.llama_provider import LLaMAProvider
+from modules.llm_providers.vllm_provider import VLLMProvider
 
 class LLMProviderFactory:
     """Factory for creating LLM providers"""
@@ -19,6 +20,8 @@ class LLMProviderFactory:
             return OpenAIProvider(config)
         elif config.provider == "llama":
             return LLaMAProvider(config)
+        elif config.provider == "vllm":
+            return VLLMProvider(config)
         else:
             raise ValueError(f"Unsupported LLM provider: {config.provider}")
     
