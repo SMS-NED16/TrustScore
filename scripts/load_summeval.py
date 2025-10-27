@@ -71,11 +71,16 @@ def load_summeval_with_sources(jsonl_path: str, max_samples: int = None) -> List
                 source_text = ""
                 
                 if article_map:
-                    # Try different filepath formats
+                    # Extract ID from filepath by removing directory and .story extension
+                    filepath_base = filepath.split("/")[-1]  # Get filename
+                    file_id = filepath_base.replace(".story", "")  # Remove .story extension
+                    
+                    # Try different path variations
                     possible_paths = [
-                        filepath,
+                        file_id,  # Just the ID (most likely to match)
+                        filepath_base,  # Filename with .story
+                        filepath,  # Full path
                         filepath.replace("stories/", ""),
-                        filepath.split("/")[-1] if "/" in filepath else filepath,
                         filepath.replace("cnndm/dailymail/stories/", ""),
                     ]
                     
