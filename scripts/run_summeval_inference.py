@@ -49,7 +49,7 @@ def run_summeval_inference(
         # Configure vLLM
         llm_config = SpanTaggerConfig(
             provider=LLMProvider.VLLM,
-            model="meta-llama/Llama-3.1-8B-Instruct",
+            model="mistralai/Mistral-7B-Instruct-v0.2",
             temperature=0.1,
             max_tokens=2000,
             batch_size=batch_size,

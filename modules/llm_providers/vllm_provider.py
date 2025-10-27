@@ -109,20 +109,54 @@ class VLLMProvider(BaseLLMProvider):
     
     def _format_messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
         """Format messages for LLM prompt using chat template"""
-        prompt = ""
-        for message in messages:
-            role = message["role"]
-            content = message["content"]
-            
-            if role == "system":
-                prompt += f"<|system|>\n{content}\n"
-            elif role == "user":
-                prompt += f"<|user|>\n{content}\n"
-            elif role == "assistant":
-                prompt += f"<|assistant|>\n{content}\n"
+        # Use the tokenizer's apply_chat_template if available, otherwise fallback
+        try:
+            # Try to use the tokenizer's chat template (supported by vLLM)
+            if hasattr(self.llm, 'get_tokenizer') and self.llm.get_tokenizer():
+                tokenizer = self.llm.get_tokenizer()
+                if hasattr(tokenizer, 'apply_chat_template'):
+                    formatted = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True
+                    )
+                    return formatted
+        except:
+            pass
         
-        prompt += "<|assistant|>\n"
-        return prompt
+        # Fallback: Detect model and use appropriate template
+        model_name = self.config.model_path or self.config.model or ""
+        
+        # Mistral format
+        if "mistral" in model_name.lower():
+            prompt = ""
+            for message in messages:
+                role = message["role"]
+                content = message["content"]
+                
+                if role == "system":
+                    prompt += f"<s>[INST] {content}\n"
+                elif role == "user":
+                    prompt += f"{content} [/INST]\n"
+                elif role == "assistant":
+                    prompt += f"{content}</s> "
+            return prompt
+        else:
+            # Default Llama format
+            prompt = ""
+            for message in messages:
+                role = message["role"]
+                content = message["content"]
+                
+                if role == "system":
+                    prompt += f"<|system|>\n{content}\n"
+                elif role == "user":
+                    prompt += f"<|user|>\n{content}\n"
+                elif role == "assistant":
+                    prompt += f"<|assistant|>\n{content}\n"
+            
+            prompt += "<|assistant|>\n"
+            return prompt
     
     def is_available(self) -> bool:
         """Check if vLLM provider is available"""
