@@ -222,7 +222,7 @@ class MockSpanTagger(SpanTagger):
     
     def __init__(self, config: SpanTaggerConfig) -> None:
         self.config: SpanTaggerConfig = config
-        self.client: Optional[OpenAI] = None  # No OpenAI client needed
+        self.client: Optional[Any] = None  # No OpenAI client needed
     
     def tag_spans(self, llm_record: LLMRecord) -> SpansLevelTags:
         """Mock implementation that returns predefined spans for testing."""

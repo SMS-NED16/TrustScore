@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from tqdm import tqdm
 from pipeline.orchestrator import TrustScorePipeline
-from config.settings import TrustScoreConfig, JudgeConfig, LLMConfig, LLMProvider
+from config.settings import TrustScoreConfig, JudgeConfig, LLMConfig, LLMProvider, SpanTaggerConfig, AggregationWeights
 
 
 def run_summeval_inference(
@@ -47,7 +47,7 @@ def run_summeval_inference(
     
     if use_vllm:
         # Configure vLLM
-        llm_config = LLMConfig(
+        llm_config = SpanTaggerConfig(
             provider=LLMProvider.VLLM,
             model="meta-llama/Llama-3.1-8B-Instruct",
             temperature=0.1,
@@ -57,7 +57,7 @@ def run_summeval_inference(
         print("✅ Using vLLM provider")
     else:
         # Configure OpenAI (fallback)
-        llm_config = LLMConfig(
+        llm_config = SpanTaggerConfig(
             provider=LLMProvider.OPENAI,
             model="gpt-4o",
             temperature=0.1,
@@ -93,10 +93,15 @@ def run_summeval_inference(
         ),
     }
     
-    # Create config
+    # Create config with span tagger config
     config = TrustScoreConfig(
         span_tagger=llm_config,
         judges=judge_configs,
+        aggregation_weights=AggregationWeights(
+            trustworthiness=0.6,
+            explainability=0.3,
+            bias=0.1
+        )
     )
     
     # Initialize pipeline
@@ -167,8 +172,12 @@ def run_summeval_inference(
     print("=" * 70)
     print(f"Total samples processed: {len(results)}")
     print(f"Time elapsed: {elapsed_time:.2f} seconds")
-    print(f"Average time per sample: {elapsed_time/len(results):.2f} seconds")
-    print(f"Throughput: {len(results)/elapsed_time:.2f} samples/second")
+    
+    if len(results) > 0:
+        print(f"Average time per sample: {elapsed_time/len(results):.2f} seconds")
+        print(f"Throughput: {len(results)/elapsed_time:.2f} samples/second")
+    else:
+        print("⚠️  No samples were successfully processed")
     
     # Calculate statistics
     successful_results = [r for r in results if 'error' not in r and 'trustscore_output' in r]

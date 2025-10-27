@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Optional
 from models.llm_record import LLMRecord, ModelMetadata, AggregatedOutput
 from pipeline.orchestrator import TrustScorePipeline, analyze_llm_response
 from config.settings import TrustScoreConfig, load_config
-from utils.error_handling import TrustScoreValidator, TrustScoreLogger
+from utils.error_handling import TrustScoreValidator, TrustScoreLogger, ValidationError
 
 
 def create_sample_llm_record() -> LLMRecord:

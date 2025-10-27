@@ -7,6 +7,8 @@ This module implements the vLLM provider for fast batched LLM inference.
 from typing import List, Dict, Any, Optional
 from vllm import LLM, SamplingParams
 from modules.llm_providers.base_llm import BaseLLMProvider
+import os
+from huggingface_hub import login
 
 
 class VLLMProvider(BaseLLMProvider):
@@ -26,6 +28,14 @@ class VLLMProvider(BaseLLMProvider):
         model_name = self.config.model_path or self.config.model
         
         try:
+            # Try to authenticate with HuggingFace if token is available
+            hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+            if hf_token:
+                try:
+                    login(token=hf_token, add_to_git_credential=True)
+                except Exception as e:
+                    print(f"⚠️  HF authentication warning: {e}")
+            
             # Initialize vLLM with configuration
             self.llm = LLM(
                 model=model_name,

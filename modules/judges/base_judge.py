@@ -6,7 +6,7 @@ for LLM judges that score error severity.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from models.llm_record import LLMRecord, SpanTag, JudgeAnalysis, JudgeIndicators, JudgeWeights, SeverityBucket
 from config.settings import JudgeConfig, TrustScoreConfig
 from prompts.system_prompts import BASE_JUDGE_PROMPT
