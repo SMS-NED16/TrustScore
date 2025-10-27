@@ -17,6 +17,7 @@ def run_summeval_inference(
     max_samples: int = None,
     batch_size: int = 10,
     use_vllm: bool = True,
+    model: str = "meta-llama/Llama-3.1-8B-Instruct",
 ):
     """
     Run TrustScore inference on preprocessed SummEval data.
@@ -27,6 +28,7 @@ def run_summeval_inference(
         max_samples: Maximum number of samples to process
         batch_size: Batch size for processing
         use_vllm: Whether to use vLLM provider
+        model: Model name to use (default: LLaMA)
     """
     print("=" * 70)
     print("SummEval TrustScore Inference")
@@ -49,12 +51,12 @@ def run_summeval_inference(
         # Configure vLLM
         llm_config = SpanTaggerConfig(
             provider=LLMProvider.VLLM,
-            model="mistralai/Mistral-7B-Instruct-v0.2",
+            model=model,
             temperature=0.1,
             max_tokens=2000,
             batch_size=batch_size,
         )
-        print("✅ Using vLLM provider")
+        print(f"✅ Using vLLM provider with model: {model}")
     else:
         # Configure OpenAI (fallback)
         llm_config = SpanTaggerConfig(
@@ -222,5 +224,6 @@ if __name__ == "__main__":
         max_samples=100,
         batch_size=10,
         use_vllm=True,
+        model="meta-llama/Llama-3.1-8B-Instruct",  # Default to LLaMA
     )
 
