@@ -7,7 +7,7 @@ trustworthiness, bias, and explainability errors in LLM responses.
 
 import json
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from models.llm_record import LLMRecord, SpansLevelTags, SpanTag, ErrorType
 from config.settings import SpanTaggerConfig
 from prompts.system_prompts import SPAN_TAGGER_PROMPT
