@@ -45,9 +45,9 @@ class VLLMProvider(BaseLLMProvider):
                 "max_model_len": 2048,  # Adjust based on needs
             }
             
-            # Add token if available
+            # Add HF token if available (for gated models like LLaMA)
             if hf_token:
-                llm_kwargs["token"] = hf_token
+                llm_kwargs["hf_auth_token"] = hf_token
             
             self.llm = LLM(**llm_kwargs)
             
