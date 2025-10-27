@@ -96,13 +96,19 @@ class TrustScorePipeline:
         llm_record: LLMRecord = self._create_llm_record(prompt, response, model, generated_on)
         
         # Step 2: Tag spans
+        print("[Pipeline Step 2/4] Span Annotation: Tagging error spans...")
         spans_tags: SpansLevelTags = self.span_tagger.tag_spans(llm_record)
+        print(f"[Pipeline Step 2/4] Span Annotation Complete: Detected {len(spans_tags.spans)} error span(s)")
         
         # Step 3: Grade spans with judges
+        print(f"[Pipeline Step 3/4] Span Grading: Analyzing {len(spans_tags.spans)} span(s) with judges...")
         graded_spans: GradedSpans = self._grade_spans(llm_record, spans_tags)
+        print(f"[Pipeline Step 3/4] Span Grading Complete: Successfully graded {len(graded_spans.spans)} span(s)")
         
         # Step 4: Aggregate scores
+        print("[Pipeline Step 4/4] Aggregation: Computing final TrustScore...")
         aggregated_output: AggregatedOutput = self.aggregator.aggregate(llm_record, graded_spans)
+        print(f"[Pipeline Complete] Final TrustScore: {aggregated_output.summary.trust_score:.3f}")
         
         return aggregated_output
     
@@ -117,8 +123,12 @@ class TrustScorePipeline:
             List of AggregatedOutput: Final TrustScore analyses
         """
         results: List[AggregatedOutput] = []
+        total_samples = len(inputs)
         
-        for input_data in inputs:
+        for idx, input_data in enumerate(inputs, start=1):
+            print(f"\n{'='*70}")
+            print(f"Processing sample {idx}/{total_samples} ({total_samples - idx} remaining)")
+            print(f"{'='*70}")
             try:
                 result: AggregatedOutput = self.process(
                     prompt=input_data['prompt'],
@@ -127,10 +137,10 @@ class TrustScorePipeline:
                     generated_on=input_data.get('generated_on')
                 )
                 results.append(result)
+                print(f"[Batch Processing] Sample {idx}/{total_samples} completed successfully")
             except Exception as e:
                 # Create empty result for failed processing
-                print(f"Error processing input: {str(e)}")
-                # You might want to create a default/empty AggregatedOutput here
+                print(f"[Batch Processing] Sample {idx}/{total_samples} failed: {str(e)}")
                 results.append(None)
         
         return results

@@ -37,7 +37,7 @@ class VLLMProvider(BaseLLMProvider):
                     os.environ["HF_TOKEN"] = hf_token
                     os.environ["HUGGINGFACE_TOKEN"] = hf_token
                 except Exception as e:
-                    print(f"⚠️  HF authentication warning: {e}")
+                    print(f"[Warning] HF authentication warning: {e}")
             
             # Initialize vLLM with configuration
             # vLLM will pick up HF_TOKEN from environment
@@ -56,10 +56,10 @@ class VLLMProvider(BaseLLMProvider):
                 top_p=0.95,
             )
             
-            print(f"✅ vLLM model loaded successfully: {model_name}")
+            print(f"[Info] vLLM model loaded successfully: {model_name}")
             
         except Exception as e:
-            print(f"❌ Failed to load vLLM model: {str(e)}")
+            print(f"[Error] Failed to load vLLM model: {str(e)}")
             self.llm = None
             self.sampling_params = None
     

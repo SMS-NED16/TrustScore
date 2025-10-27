@@ -71,7 +71,7 @@ def preprocess_to_trustscore_format(max_samples: int = 100):
         for record in trustscore_data:
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
     
-    print(f"✅ Saved {len(trustscore_data)} samples to {output_path}")
+    print(f"[Info] Saved {len(trustscore_data)} samples to {output_path}")
     
     # Print statistics
     print("\n=== Preprocessing Statistics ===")
@@ -97,5 +97,5 @@ def preprocess_to_trustscore_format(max_samples: int = 100):
 if __name__ == "__main__":
     # Preprocess 100 samples
     output_path = preprocess_to_trustscore_format(max_samples=100)
-    print(f"\n✅ Preprocessing complete! Output: {output_path}")
+    print(f"\n[Info] Preprocessing complete! Output: {output_path}")
 

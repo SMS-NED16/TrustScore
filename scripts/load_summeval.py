@@ -24,9 +24,9 @@ def load_summeval_with_sources(jsonl_path: str, max_samples: int = None) -> List
     # Load the CNN/DailyMail dataset for source articles
     try:
         cnn_dm = load_dataset("cnn_dailymail", "3.0.0", split="test")
-        print(f"✅ Loaded {len(cnn_dm)} CNN/DailyMail articles")
+        print(f"[Info] Loaded {len(cnn_dm)} CNN/DailyMail articles")
     except Exception as e:
-        print(f"⚠️  Could not load CNN/DailyMail dataset: {e}")
+        print(f"[Warning] Could not load CNN/DailyMail dataset: {e}")
         print("   Will try to match source articles by filepath...")
         cnn_dm = None
     
@@ -105,10 +105,10 @@ def load_summeval_with_sources(jsonl_path: str, max_samples: int = None) -> List
                 summeval_data.append(sample)
                 
             except json.JSONDecodeError as e:
-                print(f"⚠️  Skipped malformed line {i}: {e}")
+                print(f"[Warning] Skipped malformed line {i}: {e}")
                 continue
     
-    print(f"✅ Loaded {len(summeval_data)} SummEval samples")
+    print(f"[Info] Loaded {len(summeval_data)} SummEval samples")
     print(f"   Samples with source articles: {sum([1 for s in summeval_data if s['has_source']])}")
     
     return summeval_data
@@ -132,9 +132,9 @@ def print_sample_statistics(data: List[Dict[str, Any]]):
     
     # Check for source articles
     if data and data[0].get("has_source"):
-        print("\n✅ Source articles available for TrustScore analysis")
+        print("\n[Info] Source articles available for TrustScore analysis")
     else:
-        print("\n⚠️  No source articles found - will use summaries only")
+        print("\n[Warning] No source articles found - will use summaries only")
 
 
 if __name__ == "__main__":
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     jsonl_path = os.path.join(project_root, "datasets", "raw", "summeval", "model_annotations.aligned.jsonl")
     
     if not os.path.exists(jsonl_path):
-        print(f"❌ File not found: {jsonl_path}")
+        print(f"[Error] File not found: {jsonl_path}")
         exit(1)
     
     data = load_summeval_with_sources(jsonl_path, max_samples=10)

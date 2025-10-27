@@ -56,7 +56,7 @@ def run_summeval_inference(
             max_tokens=2000,
             batch_size=batch_size,
         )
-        print(f"✅ Using vLLM provider with model: {model}")
+        print(f"[Info] Using vLLM provider with model: {model}")
     else:
         # Configure OpenAI (fallback)
         llm_config = SpanTaggerConfig(
@@ -65,7 +65,7 @@ def run_summeval_inference(
             temperature=0.1,
             max_tokens=2000,
         )
-        print("✅ Using OpenAI provider")
+        print("[Info] Using OpenAI provider")
     
     # Create judge configs
     judge_configs = {
@@ -147,10 +147,10 @@ def run_summeval_inference(
                     }
                     results.append(output_record)
                 else:
-                    print(f"⚠️  Failed to process sample {i+j}")
+                    print(f"[Warning] Failed to process sample {i+j}")
                     
         except Exception as e:
-            print(f"❌ Error processing batch {i//batch_size}: {e}")
+            print(f"[Error] Processing batch {i//batch_size}: {e}")
             # Add empty results for failed batch
             for j in range(len(batch)):
                 results.append({
@@ -179,7 +179,7 @@ def run_summeval_inference(
         print(f"Average time per sample: {elapsed_time/len(results):.2f} seconds")
         print(f"Throughput: {len(results)/elapsed_time:.2f} samples/second")
     else:
-        print("⚠️  No samples were successfully processed")
+        print("[Warning] No samples were successfully processed")
     
     # Calculate statistics
     successful_results = [r for r in results if 'error' not in r and 'trustscore_output' in r]
@@ -202,7 +202,7 @@ def run_summeval_inference(
             print(f"  Min: {min(trust_scores):.3f}")
             print(f"  Max: {max(trust_scores):.3f}")
     
-    print(f"\n✅ Results saved to: {output_file}")
+    print(f"\n[Info] Results saved to: {output_file}")
 
 
 if __name__ == "__main__":
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     output_file = os.path.join(project_root, "results", "summeval_trustscore_100samples.jsonl")
     
     if not os.path.exists(input_file):
-        print(f"❌ Input file not found: {input_file}")
+        print(f"[Error] Input file not found: {input_file}")
         print("   Please run preprocess_summeval.py first")
         exit(1)
     
