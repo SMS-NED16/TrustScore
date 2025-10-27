@@ -17,7 +17,7 @@ def run_summeval_inference(
     max_samples: int = None,
     batch_size: int = 10,
     use_vllm: bool = True,
-    model: str = "mistralai/Mistral-7B-Instruct-v0.2",  # Non-gated model
+    model: str = "meta-llama/Llama-3.1-8B-Instruct",
 ):
     """
     Run TrustScore inference on preprocessed SummEval data.
@@ -224,6 +224,6 @@ if __name__ == "__main__":
         max_samples=100,
         batch_size=10,
         use_vllm=True,
-        model="mistralai/Mistral-7B-Instruct-v0.2",  # Non-gated model for quick prototyping
+        model="meta-llama/Llama-3.1-8B-Instruct",
     )
 
