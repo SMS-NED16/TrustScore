@@ -18,6 +18,7 @@ def run_summeval_inference(
     batch_size: int = 10,
     use_vllm: bool = True,
     model: str = "meta-llama/Llama-3.1-8B-Instruct",
+    save_to_drive: bool = False,
 ):
     """
     Run TrustScore inference on preprocessed SummEval data.
@@ -29,6 +30,7 @@ def run_summeval_inference(
         batch_size: Batch size for processing
         use_vllm: Whether to use vLLM provider
         model: Model name to use (default: LLaMA)
+        save_to_drive: If True, save results to Google Drive (Colab)
     """
     print("=" * 70)
     print("SummEval TrustScore Inference")
@@ -162,6 +164,18 @@ def run_summeval_inference(
     
     # Save results
     print(f"\nSaving results to {output_file}...")
+    
+    # If saving to Google Drive (Colab), modify output path
+    if save_to_drive:
+        from google.colab import drive
+        drive.mount('/content/drive')
+        # Save to Drive location
+        drive_output = f"/content/drive/MyDrive/TrustScore/{os.path.basename(output_file)}"
+        os.makedirs(os.path.dirname(drive_output), exist_ok=True)
+        output_file = drive_output
+        print(f"[Info] Results will be saved to Google Drive: {output_file}")
+    
+    # Ensure local directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     with open(output_file, 'w', encoding='utf-8') as f:
