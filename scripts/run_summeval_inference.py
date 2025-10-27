@@ -162,25 +162,52 @@ def run_summeval_inference(
     
     elapsed_time = time.time() - start_time
     
-    # Save results
-    print(f"\nSaving results to {output_file}...")
+    # Save results - one file per instance
+    print(f"\nSaving individual result files...")
     
     # If saving to Google Drive (Colab), modify output path
+    drive_dir = None
     if save_to_drive:
         from google.colab import drive
         drive.mount('/content/drive')
-        # Save to Drive location
-        drive_output = f"/content/drive/MyDrive/TrustScore/{os.path.basename(output_file)}"
-        os.makedirs(os.path.dirname(drive_output), exist_ok=True)
-        output_file = drive_output
-        print(f"[Info] Results will be saved to Google Drive: {output_file}")
+        drive_dir = "/content/drive/MyDrive/TrustScore"
+        os.makedirs(drive_dir, exist_ok=True)
+        print(f"[Info] Results will be saved to Google Drive: {drive_dir}")
     
     # Ensure local directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
-    with open(output_file, 'w', encoding='utf-8') as f:
-        for result in results:
-            f.write(json.dumps(result, ensure_ascii=False) + '\n')
+    # Get base filename without extension
+    base_filename = os.path.basename(output_file).replace('.jsonl', '')
+    
+    # Write one file per result
+    saved_count = 0
+    for idx, result in enumerate(results):
+        if result is None:
+            continue  # Skip failed results
+        
+        # Generate individual filename
+        individual_filename = f"{base_filename}_{idx}.jsonl"
+        
+        # Choose output location
+        if save_to_drive and drive_dir:
+            individual_path = os.path.join(drive_dir, individual_filename)
+        else:
+            individual_path = os.path.join(os.path.dirname(output_file), individual_filename)
+        
+        # Write single result to file
+        with open(individual_path, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        
+        saved_count += 1
+        if saved_count % 10 == 0:
+            print(f"[Info] Saved {saved_count}/{len(results)} result files...")
+    
+    print(f"\n[Info] Saved {saved_count} individual result files")
+    if save_to_drive:
+        print(f"[Info] Files saved to: {drive_dir}")
+    else:
+        print(f"[Info] Files saved to: {os.path.dirname(output_file)}")
     
     # Print statistics
     print("\n" + "=" * 70)
@@ -216,7 +243,10 @@ def run_summeval_inference(
             print(f"  Min: {min(trust_scores):.3f}")
             print(f"  Max: {max(trust_scores):.3f}")
     
-    print(f"\n[Info] Results saved to: {output_file}")
+    if save_to_drive:
+        print(f"\n[Info] All result files saved to Google Drive")
+    else:
+        print(f"\n[Info] All result files saved to: {os.path.dirname(output_file)}")
 
 
 if __name__ == "__main__":
