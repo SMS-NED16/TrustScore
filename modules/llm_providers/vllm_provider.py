@@ -33,23 +33,21 @@ class VLLMProvider(BaseLLMProvider):
             if hf_token:
                 try:
                     login(token=hf_token, add_to_git_credential=True)
+                    # Also set as environment variable for vLLM to pick up
+                    os.environ["HF_TOKEN"] = hf_token
+                    os.environ["HUGGINGFACE_TOKEN"] = hf_token
                 except Exception as e:
                     print(f"⚠️  HF authentication warning: {e}")
             
-            # Initialize vLLM with configuration, pass token if available
-            llm_kwargs = {
-                "model": model_name,
-                "dtype": self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto",
-                "tensor_parallel_size": 1,  # Single GPU for Colab
-                "gpu_memory_utilization": 0.9,
-                "max_model_len": 2048,  # Adjust based on needs
-            }
-            
-            # Add HF token if available (for gated models like LLaMA)
-            if hf_token:
-                llm_kwargs["hf_auth_token"] = hf_token
-            
-            self.llm = LLM(**llm_kwargs)
+            # Initialize vLLM with configuration
+            # vLLM will pick up HF_TOKEN from environment
+            self.llm = LLM(
+                model=model_name,
+                dtype=self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto",
+                tensor_parallel_size=1,  # Single GPU for Colab
+                gpu_memory_utilization=0.9,
+                max_model_len=2048,  # Adjust based on needs
+            )
             
             # Configure sampling parameters
             self.sampling_params = SamplingParams(
