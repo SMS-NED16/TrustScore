@@ -27,9 +27,9 @@ def create_sample_llm_record() -> LLMRecord:
     )
     
     return LLMRecord(
-        x="When was Georgia Tech founded?",
-        y="Georgia Institute of Technology, also known as Georgia Tech, was founded in 1885. It is located in Atlanta, Georgia, not Savannah as some might think.",
-        M=metadata
+        task_prompt="When was Georgia Tech founded?",
+        llm_response="Georgia Institute of Technology, also known as Georgia Tech, was founded in 1885. It is located in Atlanta, Georgia, not Savannah as some might think.",
+        model_metadata=metadata
     )
 
 
@@ -131,9 +131,9 @@ def example_validation() -> None:
     
     # Test invalid record
     invalid_record: LLMRecord = LLMRecord(
-        x="",  # Empty prompt
-        y="Some response",
-        M=ModelMetadata(model="test", generated_on=datetime.now())
+        task_prompt="",  # Empty prompt
+        llm_response="Some response",
+        model_metadata=ModelMetadata(model="test", generated_on=datetime.now())
     )
     errors = validator.validate_llm_record(invalid_record)
     print(f"Invalid record errors: {len(errors)}")

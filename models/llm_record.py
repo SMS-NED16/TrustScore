@@ -45,7 +45,7 @@ class ModelMetadata(BaseModel):
 
 class LLMRecord(BaseModel):
     """Standardized format for LLM input/output pairs"""
-    task_prompt = Field(..., description="Input prompt")
+    task_prompt: str = Field(..., description="Input prompt")
     llm_response: str = Field(..., description="LLM response")
     model_metadata: ModelMetadata = Field(..., description="Model metadata")
     

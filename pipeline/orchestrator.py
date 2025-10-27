@@ -148,9 +148,9 @@ class TrustScorePipeline:
         )
         
         return LLMRecord(
-            x=prompt,
-            y=response,
-            M=metadata
+            task_prompt=prompt,
+            llm_response=response,
+            model_metadata=metadata
         )
     
     def _grade_spans(self, llm_record: LLMRecord, spans_tags: SpansLevelTags) -> GradedSpans:
