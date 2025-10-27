@@ -36,14 +36,20 @@ class VLLMProvider(BaseLLMProvider):
                 except Exception as e:
                     print(f"⚠️  HF authentication warning: {e}")
             
-            # Initialize vLLM with configuration
-            self.llm = LLM(
-                model=model_name,
-                dtype=self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto",
-                tensor_parallel_size=1,  # Single GPU for Colab
-                gpu_memory_utilization=0.9,
-                max_model_len=2048,  # Adjust based on needs
-            )
+            # Initialize vLLM with configuration, pass token if available
+            llm_kwargs = {
+                "model": model_name,
+                "dtype": self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto",
+                "tensor_parallel_size": 1,  # Single GPU for Colab
+                "gpu_memory_utilization": 0.9,
+                "max_model_len": 2048,  # Adjust based on needs
+            }
+            
+            # Add token if available
+            if hf_token:
+                llm_kwargs["token"] = hf_token
+            
+            self.llm = LLM(**llm_kwargs)
             
             # Configure sampling parameters
             self.sampling_params = SamplingParams(
