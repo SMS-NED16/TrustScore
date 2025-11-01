@@ -72,14 +72,45 @@ print("✓ Google Drive mounted and results directory created")
 ```python
 # Cell 4: Navigate to project
 import sys
+import os
 sys.path.insert(0, '/content/TrustScore')
+
+# Change to project directory
+%cd /content/TrustScore
 
 # Verify installation
 from config.settings import LLMProvider
 print(f"✓ TrustScore installed. Available providers: {[p.value for p in LLMProvider]}")
+print(f"✓ Current directory: {os.getcwd()}")
 ```
 
-### Step 7: Run the Step-by-Step Pipeline
+### Step 7: Download/Check SummEval Dataset
+
+```python
+# Cell 5: Check if dataset exists, download if needed
+import os
+
+datasets_dir = "datasets/raw/summeval"
+os.makedirs(datasets_dir, exist_ok=True)
+
+summeval_file = os.path.join(datasets_dir, "model_annotations.aligned.jsonl")
+
+if not os.path.exists(summeval_file):
+    print("⚠ SummEval dataset not found!")
+    print("\nTo download:")
+    print("1. The dataset should be at: datasets/raw/summeval/model_annotations.aligned.jsonl")
+    print("2. If you have the summeval zip file, extract it:")
+    print("   !unzip /path/to/summeval.zip -d datasets/raw/")
+    print("\n3. Or download from the SummEval repository:")
+    print("   https://github.com/Yale-LILY/SummEval")
+    print("\n4. Or use the preprocessed version if available")
+    raise FileNotFoundError(f"Please download SummEval dataset to: {summeval_file}")
+else:
+    print(f"✓ SummEval dataset found at: {summeval_file}")
+    print(f"  File size: {os.path.getsize(summeval_file) / (1024*1024):.2f} MB")
+```
+
+### Step 8: Run the Step-by-Step Pipeline
 
 ```python
 # Cell 5: Run the step-by-step analysis
@@ -95,10 +126,10 @@ from specificity_analysis.run_step_by_step import *
 # All results will be saved automatically!
 ```
 
-### Step 8: Inspect Results (Optional)
+### Step 9: Inspect Results (Optional)
 
 ```python
-# Cell 6: Inspect saved results
+# Cell 7: Inspect saved results
 import json
 
 # Check what files were created
@@ -122,10 +153,10 @@ if baseline and "error" not in baseline[0]:
     print(f"  B: {result['agg_score_B']:.3f}")
 ```
 
-### Step 9: Run Analysis (When Ready)
+### Step 10: Run Analysis (When Ready)
 
 ```python
-# Cell 7: Run comparison analysis
+# Cell 8: Run comparison analysis
 from specificity_analysis.score_comparison import compare_scores, generate_report
 
 output_dir = "results/specificity_analysis"

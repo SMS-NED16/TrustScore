@@ -251,9 +251,28 @@ def run_summeval_inference(
 
 
 if __name__ == "__main__":
-    # Setup paths
+    # Setup paths - find project root reliably
+    current_dir = os.getcwd()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
+    
+    # Check if we're already in project root or need to go up one level
+    possible_roots = [
+        current_dir,  # Current working directory (works if run from project root)
+        os.path.dirname(script_dir),  # Parent of scripts directory
+    ]
+    
+    # Find the one that has 'datasets' directory
+    project_root = None
+    for root in possible_roots:
+        datasets_path = os.path.join(root, "datasets")
+        if os.path.exists(datasets_path):
+            project_root = root
+            break
+    
+    if project_root is None:
+        print(f"[Error] Could not find project root. Tried: {possible_roots}")
+        print("Make sure you're in the TrustScore directory and datasets/ exists")
+        exit(1)
     
     input_file = os.path.join(project_root, "datasets", "processed", "summeval_trustscore_format.jsonl")
     output_file = os.path.join(project_root, "results", "summeval_trustscore_100samples.jsonl")

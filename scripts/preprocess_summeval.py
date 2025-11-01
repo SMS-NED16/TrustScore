@@ -15,9 +15,29 @@ def preprocess_to_trustscore_format(max_samples: int = 100):
     Args:
         max_samples: Number of samples to process
     """
-    # Setup paths
+    # Setup paths - find project root reliably
+    current_dir = os.getcwd()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
+    
+    # Check if we're already in project root or need to go up one level
+    possible_roots = [
+        current_dir,  # Current working directory (works if run from project root)
+        os.path.dirname(script_dir),  # Parent of scripts directory
+    ]
+    
+    # Find the one that has 'datasets' directory
+    project_root = None
+    for root in possible_roots:
+        datasets_path = os.path.join(root, "datasets")
+        if os.path.exists(datasets_path):
+            project_root = root
+            break
+    
+    if project_root is None:
+        raise FileNotFoundError(
+            f"Could not find project root. Tried: {possible_roots}\n"
+            f"Make sure you're in the TrustScore directory and datasets/ exists"
+        )
     
     jsonl_path = os.path.join(project_root, "datasets", "raw", "summeval", "model_annotations.aligned.jsonl")
     output_path = os.path.join(project_root, "datasets", "processed", "summeval_trustscore_format.jsonl")

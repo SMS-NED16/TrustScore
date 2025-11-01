@@ -27,8 +27,31 @@ def load_and_sample_dataset(
     import random
     random.seed(random_seed)
     
+    # Find project root more reliably
+    # Try current working directory first (useful for Colab)
+    current_dir = os.getcwd()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(script_dir))
+    
+    # Check if we're already in project root
+    possible_roots = [
+        current_dir,  # Current working directory (Colab)
+        os.path.dirname(script_dir),  # Parent of specificity_analysis
+        os.path.dirname(os.path.dirname(script_dir)),  # Parent of parent
+    ]
+    
+    # Find the one that has 'datasets' directory
+    project_root = None
+    for root in possible_roots:
+        datasets_path = os.path.join(root, "datasets")
+        if os.path.exists(datasets_path):
+            project_root = root
+            break
+    
+    if project_root is None:
+        raise FileNotFoundError(
+            f"Could not find project root. Tried: {possible_roots}\n"
+            f"Make sure you're in the TrustScore directory and datasets/raw/summeval/ exists"
+        )
     
     if dataset_name.lower() == "summeval":
         jsonl_path = os.path.join(
@@ -40,7 +63,12 @@ def load_and_sample_dataset(
         )
         
         if not os.path.exists(jsonl_path):
-            raise FileNotFoundError(f"SummEval file not found: {jsonl_path}")
+            raise FileNotFoundError(
+                f"SummEval file not found: {jsonl_path}\n"
+                f"Project root: {project_root}\n"
+                f"Make sure the dataset is downloaded to: {os.path.dirname(jsonl_path)}\n"
+                f"Current working directory: {current_dir}"
+            )
         
         # Load SummEval data with sources
         summeval_data = load_summeval_with_sources(jsonl_path, max_samples=max_samples)

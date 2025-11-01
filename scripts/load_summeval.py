@@ -140,13 +140,35 @@ def print_sample_statistics(data: List[Dict[str, Any]]):
 if __name__ == "__main__":
     # Test loading with 10 samples
     import os
+    
+    # Find project root reliably
+    current_dir = os.getcwd()
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
+    
+    # Check if we're already in project root or need to go up one level
+    possible_roots = [
+        current_dir,  # Current working directory (works if run from project root)
+        os.path.dirname(script_dir),  # Parent of scripts directory
+    ]
+    
+    # Find the one that has 'datasets' directory
+    project_root = None
+    for root in possible_roots:
+        datasets_path = os.path.join(root, "datasets")
+        if os.path.exists(datasets_path):
+            project_root = root
+            break
+    
+    if project_root is None:
+        print(f"[Error] Could not find project root. Tried: {possible_roots}")
+        print("Make sure you're in the TrustScore directory and datasets/ exists")
+        exit(1)
     
     jsonl_path = os.path.join(project_root, "datasets", "raw", "summeval", "model_annotations.aligned.jsonl")
     
     if not os.path.exists(jsonl_path):
         print(f"[Error] File not found: {jsonl_path}")
+        print(f"Project root: {project_root}")
         exit(1)
     
     data = load_summeval_with_sources(jsonl_path, max_samples=10)
