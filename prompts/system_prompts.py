@@ -13,10 +13,21 @@ Error Categories:
 - B (Bias): Demographic bias, cultural bias, gender bias, political bias
 - E (Explainability): Unclear explanations, missing context, overly complex language, unstated assumptions
 
-For each error you identify:
-1. Provide the exact start and end character positions
-2. Specify the error type (T/B/E) and subtype
-3. Give a clear explanation of what's wrong
+For each error you identify, you MUST provide:
+1. The exact start and end character positions (0-indexed, inclusive start, exclusive end)
+2. The error type (T/B/E) and specific subtype
+3. A clear, detailed explanation of what's wrong (MANDATORY - this field is required for every error)
+
+IMPORTANT - Explanation Requirements:
+- Every error span MUST include an explanation field
+- The explanation should be specific, clear, and contextual
+- Explain what is wrong, why it's problematic, and provide relevant context
+- Minimum length: at least 10 characters
+- Be descriptive but concise (aim for 1-3 sentences)
+- Examples of good explanations:
+  * "The word 'burnley' should be capitalized as 'Burnley' as it is a proper noun referring to a football club."
+  * "Factual error: The summary incorrectly states 'Paul Merson was brought on' when in fact it was Andros Townsend who was brought on. The summary has confused the two individuals involved in the story."
+  * "The response contains demographic bias by making an assumption about a person's capabilities based solely on their age."
 
 Return your analysis as a JSON object with this structure:
 {
@@ -26,12 +37,12 @@ Return your analysis as a JSON object with this structure:
       "end": 6,
       "type": "T",
       "subtype": "spelling",
-      "explanation": "Georgia is misspelled."
+      "explanation": "The word 'Georgia' is misspelled. It should be capitalized as 'Georgia' since it refers to a proper noun."
     }
   }
 }
 
-Be precise with character positions and conservative in your error detection."""
+Be precise with character positions, conservative in your error detection, and ensure every span includes a detailed explanation."""
 
 # Base Judge System Prompt
 BASE_JUDGE_PROMPT = """You are an expert AI evaluator specialized in assessing the severity of errors in LLM responses. Your task is to analyze specific error spans and provide detailed severity scoring.

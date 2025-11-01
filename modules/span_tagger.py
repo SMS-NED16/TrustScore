@@ -50,7 +50,9 @@ class SpanTagger:
 
 Response: {llm_record.llm_response}
 
-Please analyze this response for errors and return the JSON format specified in the system prompt."""
+Please analyze this response for errors and return the JSON format specified in the system prompt.
+
+Remember: Each error span MUST include a clear, detailed explanation explaining what's wrong and why it's problematic. The explanation field is mandatory for every error you identify."""
 
         try:
             messages = self.llm_provider.format_messages(self.system_prompt, user_prompt)
@@ -97,7 +99,28 @@ Please analyze this response for errors and return the JSON format specified in 
                 end: int = int(span_info["end"])
                 error_type: str = span_info["type"]
                 subtype: str = span_info["subtype"]
+                
+                # Validate explanation exists and is meaningful
+                if "explanation" not in span_info:
+                    raise ValueError(f"Span {span_id} is missing required 'explanation' field")
+                
                 explanation: str = span_info["explanation"]
+                
+                # Validate explanation is not empty or whitespace-only
+                if not explanation or not explanation.strip():
+                    raise ValueError(f"Span {span_id} has empty or whitespace-only explanation")
+                
+                # Get minimum explanation length (default 10 characters)
+                min_explanation_length = 10
+                if span_config and hasattr(span_config, 'min_explanation_length'):
+                    min_explanation_length = span_config.min_explanation_length
+                
+                # Validate explanation meets minimum length requirement
+                if len(explanation.strip()) < min_explanation_length:
+                    raise ValueError(
+                        f"Span {span_id} explanation is too short (minimum {min_explanation_length} characters, "
+                        f"got {len(explanation.strip())}). Please provide a more detailed explanation."
+                    )
                 
                 # Apply configurable span validation
                 if span_config:

@@ -109,6 +109,7 @@ class SpanProcessingConfig(BaseModel):
     span_validation_strict: bool = Field(default=True)
     merge_adjacent_spans: bool = Field(default=False)
     min_span_gap: int = Field(default=0, ge=0)
+    min_explanation_length: int = Field(default=10, ge=1, description="Minimum length for error explanations in characters")
 
 
 class AggregationStrategyConfig(BaseModel):

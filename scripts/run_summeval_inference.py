@@ -135,12 +135,13 @@ def run_summeval_inference(
             batch_results = pipeline.process_batch(batch_inputs)
             
             # Combine results with original data
+            judge_info_map = pipeline.get_judge_info_map()
             for j, result in enumerate(batch_results):
                 if result:
                     output_record = {
                         "sample_id": batch[j].get("sample_id", f"sample_{i+j}"),
                         "timestamp": datetime.now().isoformat(),
-                        "trustscore_output": result.format_for_output(config.output),
+                        "trustscore_output": result.format_for_output(config.output, judge_info_map=judge_info_map),
                         "original_annotations": {
                             "expert": batch[j].get("expert_annotations", []),
                             "turker": batch[j].get("turker_annotations", []),

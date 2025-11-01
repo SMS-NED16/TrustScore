@@ -268,6 +268,23 @@ class TrustScorePipeline:
         
         return consensus_achieved
     
+    def get_judge_info_map(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get judge information map for output formatting.
+        
+        Returns:
+            Dict mapping judge_name -> {"model": str, ...}
+        """
+        judge_info_map: Dict[str, Dict[str, Any]] = {}
+        for aspect, judges in self.judges.items():
+            for judge_name, judge in judges.items():
+                judge_info_map[judge_name] = {
+                    "model": judge.config.model,
+                    "provider": judge.config.provider.value if hasattr(judge.config.provider, 'value') else str(judge.config.provider),
+                    "aspect": aspect
+                }
+        return judge_info_map
+    
     def get_pipeline_status(self) -> Dict[str, Any]:
         """
         Get status information about the pipeline.

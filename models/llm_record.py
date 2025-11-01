@@ -251,6 +251,8 @@ class ErrorSummary(BaseModel):
     severity_bucket: SeverityBucket
     severity_score: float
     confidence: ConfidenceInterval
+    explanation: str = Field(..., description="Human-readable explanation of the error")
+    weights: Optional[JudgeWeights] = Field(default=None, description="Weights used by judges for this error type")
 
 
 class AggregatedSummary(BaseModel):
@@ -272,13 +274,20 @@ class AggregatedOutput(BaseModel):
     model_metadata: ModelMetadata = Field(..., description="Model metadata")
     summary: AggregatedSummary = Field(..., description="Aggregated scores")
     errors: Dict[str, ErrorSummary] = Field(default_factory=dict, description="Error summaries")
+    graded_spans: Optional[GradedSpans] = Field(default=None, description="Underlying graded spans for detailed output")
     
     def add_error_summary(self, error_id: str, error_summary: ErrorSummary) -> None:
         """Add an error summary"""
         self.errors[error_id] = error_summary
     
-    def format_for_output(self, output_config) -> Dict[str, Any]:
-        """Format aggregated output based on configuration."""
+    def format_for_output(self, output_config, judge_info_map: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """
+        Format aggregated output based on configuration.
+        
+        Args:
+            output_config: Output configuration
+            judge_info_map: Optional map of judge_name -> {"model": str, ...} for judge metadata
+        """
         base_data = {
             "task_prompt": self.task_prompt,
             "llm_response": self.llm_response,
@@ -322,30 +331,76 @@ class AggregatedOutput(BaseModel):
         if output_config.include_raw_spans:
             base_data["raw_spans"] = {}
             for span_id, span in self.errors.items():
-                base_data["raw_spans"][span_id] = {
+                raw_span_data = {
                     "type": span.type.value,
                     "subtype": span.subtype,
                     "severity_bucket": span.severity_bucket.value,
                     "severity_score": span.severity_score,
-                    "confidence": {
+                    "explanation": span.explanation
+                }
+                if output_config.include_confidence_intervals:
+                    raw_span_data["confidence"] = {
                         "lower": span.confidence.lower,
                         "upper": span.confidence.upper
                     }
-                }
+                base_data["raw_spans"][span_id] = raw_span_data
         else:
             base_data["errors"] = {}
             for error_id, error_summary in self.errors.items():
-                base_data["errors"][error_id] = {
+                error_data = {
                     "type": error_summary.type.value,
                     "subtype": error_summary.subtype,
                     "severity_bucket": error_summary.severity_bucket.value,
-                    "severity_score": error_summary.severity_score
+                    "severity_score": error_summary.severity_score,
+                    "explanation": error_summary.explanation
                 }
+                
                 if output_config.include_confidence_intervals:
-                    base_data["errors"][error_id]["confidence"] = {
+                    error_data["confidence"] = {
                         "lower": error_summary.confidence.lower,
                         "upper": error_summary.confidence.upper
                     }
+                
+                # Add ensemble statistics if requested
+                if output_config.include_ensemble_statistics and self.graded_spans:
+                    graded_span = self.graded_spans.spans.get(error_id)
+                    if graded_span:
+                        stats = graded_span.get_ensemble_statistics()
+                        error_data["ensemble_statistics"] = stats
+                
+                # Add individual judge scores and weights if requested
+                if output_config.include_individual_judge_scores and self.graded_spans:
+                    graded_span = self.graded_spans.spans.get(error_id)
+                    if graded_span and graded_span.analysis:
+                        judge_scores = {}
+                        for judge_name, analysis in graded_span.analysis.items():
+                            judge_entry = {
+                                "severity_score": analysis.severity_score,
+                                "confidence": analysis.confidence,
+                                "severity_bucket": analysis.severity_bucket.value,
+                                "indicators": {
+                                    "centrality": analysis.indicators.centrality,
+                                    "domain_sensitivity": analysis.indicators.domain_sensitivity,
+                                    "harm_potential": analysis.indicators.harm_potential,
+                                    "instruction_criticality": analysis.indicators.instruction_criticality
+                                }
+                            }
+                            # Add model name if available in judge_info_map
+                            if judge_info_map and judge_name in judge_info_map:
+                                judge_entry["model"] = judge_info_map[judge_name].get("model", "unknown")
+                            judge_scores[judge_name] = judge_entry
+                        error_data["judge_scores"] = judge_scores
+                        
+                        # Add weights at error level (not per judge, since all judges of same type share weights)
+                        if error_summary.weights:
+                            error_data["weights"] = {
+                                "centrality": error_summary.weights.centrality,
+                                "domain_sensitivity": error_summary.weights.domain_sensitivity,
+                                "harm_potential": error_summary.weights.harm_potential,
+                                "instruction_criticality": error_summary.weights.instruction_criticality
+                            }
+                
+                base_data["errors"][error_id] = error_data
         
         # Apply precision formatting
         if hasattr(output_config, 'precision_decimal_places'):

@@ -69,13 +69,14 @@ class Aggregator:
         # Create error summaries
         error_summaries: Dict[str, ErrorSummary] = self._create_error_summaries(graded_spans)
         
-        # Create aggregated output
+        # Create aggregated output with graded_spans reference for detailed output
         aggregated_output: AggregatedOutput = AggregatedOutput(
             task_prompt=llm_record.task_prompt,
             llm_response=llm_record.llm_response,
             model_metadata=llm_record.model_metadata,
             summary=summary,
-            errors=error_summaries
+            errors=error_summaries,
+            graded_spans=graded_spans
         )
         
         return aggregated_output
@@ -311,12 +312,20 @@ class Aggregator:
                 upper=min(1, avg_confidence + 0.05)
             )
             
+            # Extract weights from first judge analysis (all judges of same type should have same weights)
+            weights: Optional[JudgeWeights] = None
+            if span.analysis:
+                first_analysis = next(iter(span.analysis.values()))
+                weights = first_analysis.weights
+            
             error_summary: ErrorSummary = ErrorSummary(
                 type=span.type,
                 subtype=span.subtype,
                 severity_bucket=severity_bucket,
                 severity_score=avg_severity,
-                confidence=confidence_ci
+                confidence=confidence_ci,
+                explanation=span.explanation,
+                weights=weights
             )
             
             error_summaries[span_id] = error_summary
