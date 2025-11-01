@@ -22,3 +22,9 @@ __all__ = [
     'generate_report',
     'load_results'
 ]
+
+# Step-by-step runner is available via import
+try:
+    from . import run_step_by_step
+except ImportError:
+    pass

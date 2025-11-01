@@ -6,14 +6,17 @@ import json
 import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from tqdm import tqdm
 from pipeline.orchestrator import TrustScorePipeline
+from config.settings import TrustScoreConfig
 
 
 def run_baseline_inference(
     samples: List[Dict[str, Any]],
     output_path: str,
     use_mock: bool = False,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    config: Optional[TrustScoreConfig] = None
 ) -> List[Dict[str, Any]]:
     """
     Run TrustScore inference on original (unperturbed) responses.
@@ -23,6 +26,7 @@ def run_baseline_inference(
         output_path: Path to save results
         use_mock: Whether to use mock components (for testing)
         api_key: API key for LLM providers
+        config: Optional TrustScoreConfig to use custom configuration
         
     Returns:
         List of TrustScore results
@@ -31,13 +35,15 @@ def run_baseline_inference(
     print("Step 1: Baseline TrustScore Inference")
     print("=" * 70)
     
-    # Initialize pipeline
-    pipeline = TrustScorePipeline(api_key=api_key, use_mock=use_mock)
+    # Initialize pipeline with config if provided
+    if config:
+        pipeline = TrustScorePipeline(config=config, api_key=api_key, use_mock=use_mock)
+    else:
+        pipeline = TrustScorePipeline(api_key=api_key, use_mock=use_mock)
     
     results = []
     
-    for i, sample in enumerate(samples):
-        print(f"\n[{i+1}/{len(samples)}] Processing sample: {sample.get('sample_id', i)}")
+    for i, sample in enumerate(tqdm(samples, desc="Processing baseline samples", unit="sample")):
         
         try:
             result = pipeline.process(
@@ -86,13 +92,14 @@ def run_baseline_inference(
             
             results.append(result_data)
             
-            print(f"  TrustScore: {result.summary.trust_score:.3f}")
-            print(f"  T: {result.summary.agg_score_T:.3f}, "
-                  f"E: {result.summary.agg_score_E:.3f}, "
-                  f"B: {result.summary.agg_score_B:.3f}")
+            tqdm.write(f"  Sample {i+1}: TrustScore={result.summary.trust_score:.3f}, "
+                      f"T={result.summary.agg_score_T:.3f}, "
+                      f"E={result.summary.agg_score_E:.3f}, "
+                      f"B={result.summary.agg_score_B:.3f}, "
+                      f"Errors={len(result.errors)}")
             
         except Exception as e:
-            print(f"  Error: {str(e)}")
+            tqdm.write(f"  Error processing sample {i+1}: {str(e)}")
             results.append({
                 "sample_id": sample.get("sample_id", f"sample_{i}"),
                 "baseline": True,

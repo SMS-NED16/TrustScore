@@ -13,7 +13,7 @@ The specificity analysis tests whether TrustScore correctly identifies errors in
 
 ## Usage
 
-### Quick Start
+### Quick Start (Full Pipeline)
 
 ```bash
 # Run full analysis (with mock components for testing)
@@ -22,6 +22,20 @@ python specificity_analysis/run_full_analysis.py --use-mock --num-samples 10
 # Run full analysis with real LLM calls
 python specificity_analysis/run_full_analysis.py --num-samples 50 --api-key YOUR_API_KEY
 ```
+
+### Step-by-Step Manual Execution (Recommended for Inspection)
+
+For running step-by-step with inspection of intermediate results, especially on Google Colab:
+
+```python
+# Import the step-by-step script
+from specificity_analysis.run_step_by_step import *
+
+# Or run directly:
+python specificity_analysis/run_step_by_step.py
+```
+
+**See `COLAB_SETUP.md` for complete Google Colab setup instructions.**
 
 ### Command Line Arguments
 
@@ -136,10 +150,24 @@ This validates that TrustScore is specific to each error dimension and that scor
 
 ## Notes
 
-- Error injection uses an LLM (default: GPT-4o) to modify responses minimally
-- Mock mode can be used for testing without actual LLM calls
-- Results can be saved and compared incrementally using `--skip-baseline` and `--skip-perturbation` flags
-- The analysis requires API keys for LLM providers when not using mock mode
+- **VLLM Support**: The step-by-step script (`run_step_by_step.py`) uses VLLM for fast inference on Google Colab
+- **Reproducibility**: Configured with random seed 42 and temperature 0.0 for deterministic results
+- **Progress Tracking**: Uses `tqdm` for progress bars in all loops
+- **Google Drive**: Automatically saves results to Google Drive when running in Colab
+- **Error Injection**: Uses VLLM/LLaMA to modify responses minimally
+- **Mock Mode**: Can be used for testing without actual LLM calls (see `run_full_analysis.py`)
+- **Incremental Processing**: Results can be saved and compared incrementally using `--skip-baseline` and `--skip-perturbation` flags
+
+## Google Colab Setup
+
+For detailed instructions on running this on Google Colab, see **[COLAB_SETUP.md](COLAB_SETUP.md)**.
+
+Quick summary:
+1. Enable GPU runtime
+2. Clone repository and install dependencies
+3. Authenticate with HuggingFace (for LLaMA access)
+4. Mount Google Drive (for saving results)
+5. Run `run_step_by_step.py` or import from notebook
 
 ## Example Output
 

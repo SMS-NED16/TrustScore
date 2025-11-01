@@ -22,10 +22,12 @@ class VLLMProvider(BaseLLMProvider):
     
     def _load_model(self):
         """Load vLLM model"""
-        if not self.config.model_path and not self.config.model:
-            raise ValueError("Model path or model name required for vLLM provider")
+        # VLLM can use either model (for HuggingFace IDs) or model_path
+        if not self.config.model and not (hasattr(self.config, 'model_path') and self.config.model_path):
+            raise ValueError("Model name required for vLLM provider (use HuggingFace model ID)")
         
-        model_name = self.config.model_path or self.config.model
+        # Prefer model_path if available, otherwise use model (HuggingFace ID)
+        model_name = getattr(self.config, 'model_path', None) or self.config.model
         
         try:
             # Try to authenticate with HuggingFace if token is available
@@ -50,10 +52,12 @@ class VLLMProvider(BaseLLMProvider):
             )
             
             # Configure sampling parameters
+            # Use temperature 0.0 for deterministic results if specified
+            temp = self.config.temperature if hasattr(self.config, 'temperature') else 0.0
             self.sampling_params = SamplingParams(
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
-                top_p=0.95,
+                temperature=temp,
+                max_tokens=self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000,
+                top_p=0.95 if temp > 0 else 1.0,  # top_p=1.0 when temperature=0
             )
             
             print(f"[Info] vLLM model loaded successfully: {model_name}")
@@ -74,10 +78,11 @@ class VLLMProvider(BaseLLMProvider):
         # Override sampling params if provided
         sampling_params = self.sampling_params
         if kwargs:
+            temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
             sampling_params = SamplingParams(
-                temperature=kwargs.get('temperature', self.config.temperature),
-                max_tokens=kwargs.get('max_tokens', self.config.max_tokens),
-                top_p=kwargs.get('top_p', 0.95),
+                temperature=temp,
+                max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
+                top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
             )
         
         # Generate response
@@ -98,10 +103,11 @@ class VLLMProvider(BaseLLMProvider):
         # Override sampling params if provided
         sampling_params = self.sampling_params
         if kwargs:
+            temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
             sampling_params = SamplingParams(
-                temperature=kwargs.get('temperature', self.config.temperature),
-                max_tokens=kwargs.get('max_tokens', self.config.max_tokens),
-                top_p=kwargs.get('top_p', 0.95),
+                temperature=temp,
+                max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
+                top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
             )
         
         # Batch generate

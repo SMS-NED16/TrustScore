@@ -7,6 +7,7 @@ into LLM responses for specificity analysis.
 
 import os
 from typing import Dict, Any, List, Optional
+from tqdm import tqdm
 from modules.llm_providers.factory import LLMProviderFactory
 from config.settings import LLMConfig, LLMProvider
 
@@ -58,21 +59,30 @@ Modified Response:"""
         self,
         provider: LLMProvider = LLMProvider.OPENAI,
         model: str = "gpt-4o",
+        model_path: Optional[str] = None,
+        temperature: float = 0.0,  # Deterministic by default
+        device: str = "cuda",
         api_key: Optional[str] = None
     ):
         """Initialize error injector with LLM provider."""
-        self.config = LLMConfig(
-            provider=provider,
-            model=model,
-            api_key=api_key or os.getenv("OPENAI_API_KEY"),
-            temperature=0.3,  # Lower temperature for more consistent injections
-            max_tokens=2000
-        )
+        # Create LLMConfig with all parameters (device and torch_dtype are valid fields)
+        config_dict = {
+            "provider": provider,
+            "model": model,
+            "model_path": model_path or model,
+            "api_key": api_key or os.getenv("OPENAI_API_KEY"),
+            "temperature": temperature,  # Use provided temperature (0.0 for deterministic)
+            "max_tokens": 2000,
+            "device": device,
+            "torch_dtype": "float16"
+        }
+        
+        self.config = LLMConfig(**config_dict)
         
         self.llm_provider = LLMProviderFactory.create_provider(self.config)
         
         if not self.llm_provider.is_available():
-            raise ValueError(f"LLM provider {provider} not available. Please check API key.")
+            raise ValueError(f"LLM provider {provider} not available. Please check configuration.")
     
     def inject_trustworthiness_error(self, response: str) -> str:
         """Inject a trustworthiness error into the response."""
@@ -143,9 +153,7 @@ Modified Response:"""
         """
         perturbed_samples = []
         
-        for i, sample in enumerate(samples):
-            print(f"  Injecting {error_type} error into sample {i+1}/{len(samples)}...")
-            
+        for i, sample in enumerate(tqdm(samples, desc=f"Injecting {error_type} errors", unit="sample")):
             try:
                 original_response = sample["response"]
                 
@@ -168,7 +176,8 @@ Modified Response:"""
                 perturbed_samples.append(perturbed_sample)
                 
             except Exception as e:
-                print(f"  Warning: Failed to inject error for sample {i+1}: {str(e)}")
+                sample_idx = i + 1
+                tqdm.write(f"  Warning: Failed to inject error for sample {sample_idx}/{len(samples)}: {str(e)}")
                 # Keep original response if injection fails
                 perturbed_sample = sample.copy()
                 perturbed_sample["error_type_injected"] = error_type
