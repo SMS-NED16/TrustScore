@@ -44,40 +44,57 @@ class Aggregator:
         print(f"[DEBUG Aggregation] Input: {total_spans} total spans (T={t_spans}, B={b_spans}, E={e_spans})")
         
         # Calculate aggregated scores for each category
+        # Returns: (severity_score, severity_score_ci, mean_confidence, confidence_ci)
         t_score: float
-        t_ci: ConfidenceInterval
-        t_score, t_ci = self._calculate_category_score(graded_spans, ErrorType.TRUSTWORTHINESS)
+        t_severity_ci: ConfidenceInterval
+        t_confidence: float
+        t_confidence_ci: ConfidenceInterval
+        t_score, t_severity_ci, t_confidence, t_confidence_ci = self._calculate_category_score(graded_spans, ErrorType.TRUSTWORTHINESS)
         
         e_score: float
-        e_ci: ConfidenceInterval
-        e_score, e_ci = self._calculate_category_score(graded_spans, ErrorType.EXPLAINABILITY)
+        e_severity_ci: ConfidenceInterval
+        e_confidence: float
+        e_confidence_ci: ConfidenceInterval
+        e_score, e_severity_ci, e_confidence, e_confidence_ci = self._calculate_category_score(graded_spans, ErrorType.EXPLAINABILITY)
         
         b_score: float
-        b_ci: ConfidenceInterval
-        b_score, b_ci = self._calculate_category_score(graded_spans, ErrorType.BIAS)
+        b_severity_ci: ConfidenceInterval
+        b_confidence: float
+        b_confidence_ci: ConfidenceInterval
+        b_score, b_severity_ci, b_confidence, b_confidence_ci = self._calculate_category_score(graded_spans, ErrorType.BIAS)
         
         # LOG: Scores before final aggregation
-        print(f"[DEBUG Aggregation] Category scores: T={t_score:.3f}, E={e_score:.3f}, B={b_score:.3f}")
+        print(f"[DEBUG Aggregation] Category severity scores: T={t_score:.3f}, E={e_score:.3f}, B={b_score:.3f}")
+        print(f"[DEBUG Aggregation] Category mean confidences: T={t_confidence:.3f}, E={e_confidence:.3f}, B={b_confidence:.3f}")
         print(f"[DEBUG Aggregation] Aggregation weights: T={self.config.aggregation_weights.trustworthiness:.3f}, "
               f"E={self.config.aggregation_weights.explainability:.3f}, "
               f"B={self.config.aggregation_weights.bias:.3f}")
         
-        # Calculate final trust score
+        # Calculate final trust score (using severity score CIs for trust score CI calculation)
         trust_score: float
         trust_ci: ConfidenceInterval
-        trust_score, trust_ci = self._calculate_trust_score(t_score, e_score, b_score, t_ci, e_ci, b_ci)
+        trust_score, trust_ci = self._calculate_trust_score(t_score, e_score, b_score, t_severity_ci, e_severity_ci, b_severity_ci)
         
         # LOG: Final trust score
         print(f"[DEBUG Aggregation] Final trust_score: {trust_score:.3f}")
         
         # Create aggregated summary
         summary: AggregatedSummary = AggregatedSummary(
+            # Severity scores and CIs (severity space)
             agg_score_T=t_score,
-            agg_score_T_ci=t_ci,
+            agg_score_T_ci=t_severity_ci,
             agg_score_E=e_score,
-            agg_score_E_ci=e_ci,
+            agg_score_E_ci=e_severity_ci,
             agg_score_B=b_score,
-            agg_score_B_ci=b_ci,
+            agg_score_B_ci=b_severity_ci,
+            # Confidence levels and CIs (probability space [0-1])
+            agg_confidence_T=t_confidence,
+            agg_confidence_T_ci=t_confidence_ci,
+            agg_confidence_E=e_confidence,
+            agg_confidence_E_ci=e_confidence_ci,
+            agg_confidence_B=b_confidence,
+            agg_confidence_B_ci=b_confidence_ci,
+            # Final trust score
             trust_score=trust_score,
             trust_score_ci=trust_ci
         )
@@ -97,7 +114,7 @@ class Aggregator:
         
         return aggregated_output
     
-    def _calculate_category_score(self, graded_spans: GradedSpans, error_type: ErrorType) -> Tuple[float, ConfidenceInterval]:
+    def _calculate_category_score(self, graded_spans: GradedSpans, error_type: ErrorType) -> Tuple[float, ConfidenceInterval, float, ConfidenceInterval]:
         """
         Calculate aggregated score and confidence interval for a specific error category.
         
@@ -106,7 +123,11 @@ class Aggregator:
             error_type: The error category to aggregate
             
         Returns:
-            Tuple of (score, confidence_interval)
+            Tuple of (severity_score, severity_score_ci, mean_confidence, confidence_ci)
+            - severity_score: Sum of weighted severity scores (severity space)
+            - severity_score_ci: CI around the sum (severity space)
+            - mean_confidence: Mean confidence across spans (probability space [0-1])
+            - confidence_ci: CI around the mean confidence (probability space [0-1])
         """
         category_spans: Dict[str, GradedSpan] = graded_spans.get_spans_by_type(error_type)
         
@@ -114,7 +135,7 @@ class Aggregator:
         
         if not category_spans:
             print(f"[DEBUG Score Calculation] {error_type.value} score = 0.0 (no spans found)")
-            return 0.0, ConfidenceInterval(lower=None, upper=None)
+            return 0.0, ConfidenceInterval(lower=None, upper=None), 0.0, ConfidenceInterval(lower=None, upper=None)
         
         # Collect all severity scores and confidences
         severity_scores: List[float] = []
@@ -140,17 +161,25 @@ class Aggregator:
             severity_scores.append(weighted_severity)
             confidences.append(avg_confidence)
         
-        # Calculate aggregated score (sum of weighted scores)
-        aggregated_score: float = sum(severity_scores)
+        # Calculate aggregated severity score (sum of weighted scores)
+        aggregated_severity_score: float = sum(severity_scores)
         
-        # LOG: Final score
-        print(f"[DEBUG Score Calculation] {error_type.value} final score: {aggregated_score:.3f} "
+        # Calculate mean confidence (average across spans)
+        mean_confidence: float = statistics.mean(confidences) if confidences else 0.0
+        
+        # LOG: Final scores
+        print(f"[DEBUG Score Calculation] {error_type.value} final severity score: {aggregated_severity_score:.3f} "
               f"(sum of {len(severity_scores)} span(s): {severity_scores})")
+        print(f"[DEBUG Score Calculation] {error_type.value} mean confidence: {mean_confidence:.3f} "
+              f"(mean of {len(confidences)} span(s): {confidences})")
         
-        # Calculate confidence interval
-        confidence_interval: ConfidenceInterval = self._calculate_confidence_interval(confidences, severity_scores)
+        # Calculate severity score CI (around the sum, in severity space)
+        severity_score_ci: ConfidenceInterval = self._calculate_severity_confidence_interval(severity_scores)
         
-        return aggregated_score, confidence_interval
+        # Calculate confidence CI (around the mean, in probability space [0-1])
+        confidence_ci: ConfidenceInterval = self._calculate_mean_confidence_interval(confidences)
+        
+        return aggregated_severity_score, severity_score_ci, mean_confidence, confidence_ci
     
     def _calculate_trust_score(self, t_score: float, e_score: float, b_score: float,
                               t_ci: ConfidenceInterval, e_ci: ConfidenceInterval, 
@@ -213,51 +242,45 @@ class Aggregator:
         
         return trust_score, trust_ci
     
-    def _calculate_confidence_interval(self, confidences: List[float], 
-                                     scores: List[float]) -> ConfidenceInterval:
+    def _calculate_severity_confidence_interval(self, severity_scores: List[float]) -> ConfidenceInterval:
         """
-        Calculate confidence interval using ensemble statistics and configurable parameters.
+        Calculate confidence interval for severity scores (around the sum, in severity space).
         
         Note: The aggregated score is the SUM of severity scores, so the CI is computed
         around the sum to maintain unit consistency.
         
         Args:
-            confidences: List of confidence values
-            scores: List of corresponding scores
+            severity_scores: List of weighted severity scores
             
         Returns:
-            ConfidenceInterval: Calculated confidence interval around the sum
+            ConfidenceInterval: Calculated confidence interval around the sum (in severity space)
         """
-        if not confidences or not scores:
+        if not severity_scores:
             return ConfidenceInterval(lower=None, upper=None)
         
-        # Use ensemble statistics for better confidence intervals
-        mean_confidence: float = statistics.mean(confidences)
-        
         # Calculate sum of scores (matches aggregated score calculation)
-        sum_score: float = sum(scores)
+        sum_score: float = sum(severity_scores)
         
         # Calculate standard error of the SUM (not the mean)
         # For independent scores: Var(sum) = n * Var(individual), so SE(sum) = sqrt(n) * std(individual)
-        if len(scores) > 1:
-            score_std: float = statistics.stdev(scores)
+        if len(severity_scores) > 1:
+            score_std: float = statistics.stdev(severity_scores)
             # Standard error of sum = sqrt(n) * standard deviation
-            n: int = len(scores)
+            n: int = len(severity_scores)
             sum_sem: float = score_std * (n ** 0.5)
         else:
             sum_sem: float = 0
         
         # Use confidence level from config
         confidence_level: float = self.config.confidence_level
-        alpha: float = 1 - confidence_level
         
         # Use configurable statistical parameters
         stat_config = self.config.statistical
         
         # Calculate t-statistic for small samples (more accurate than z-score)
-        if len(scores) <= stat_config.min_sample_size_for_t_dist:
+        if len(severity_scores) <= stat_config.min_sample_size_for_t_dist:
             # Use t-distribution for small samples with configurable values
-            t_critical = stat_config.t_critical_values.get(len(scores), 2.0)
+            t_critical = stat_config.t_critical_values.get(len(severity_scores), 2.0)
         else:
             # Use z-score for large samples with configurable values
             t_critical = stat_config.fallback_z_scores.get(confidence_level, 1.96)
@@ -268,9 +291,63 @@ class Aggregator:
         if stat_config.use_continuity_correction:
             margin_of_error += stat_config.confidence_margin
         
-        # Compute CI bounds around the sum (consistent with aggregated score units)
+        # Compute CI bounds around the sum (consistent with aggregated score units, in severity space)
         lower_bound: float = sum_score - margin_of_error
         upper_bound: float = sum_score + margin_of_error
+        
+        return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
+    
+    def _calculate_mean_confidence_interval(self, confidences: List[float]) -> ConfidenceInterval:
+        """
+        Calculate confidence interval for mean confidence (around the mean, in probability space [0-1]).
+        
+        Note: This calculates a CI around the MEAN of confidences, not the sum,
+        since confidence is already bounded in [0-1] probability space.
+        
+        Args:
+            confidences: List of confidence values (in probability space [0-1])
+            
+        Returns:
+            ConfidenceInterval: Calculated confidence interval around the mean (in probability space [0-1])
+        """
+        if not confidences:
+            return ConfidenceInterval(lower=None, upper=None)
+        
+        # Calculate mean confidence
+        mean_confidence: float = statistics.mean(confidences)
+        
+        # Calculate standard error of the MEAN (not the sum)
+        if len(confidences) > 1:
+            confidence_std: float = statistics.stdev(confidences)
+            # Standard error of mean = std / sqrt(n)
+            n: int = len(confidences)
+            mean_sem: float = confidence_std / (n ** 0.5)
+        else:
+            mean_sem: float = 0
+        
+        # Use confidence level from config
+        confidence_level: float = self.config.confidence_level
+        
+        # Use configurable statistical parameters
+        stat_config = self.config.statistical
+        
+        # Calculate t-statistic for small samples (more accurate than z-score)
+        if len(confidences) <= stat_config.min_sample_size_for_t_dist:
+            # Use t-distribution for small samples with configurable values
+            t_critical = stat_config.t_critical_values.get(len(confidences), 2.0)
+        else:
+            # Use z-score for large samples with configurable values
+            t_critical = stat_config.fallback_z_scores.get(confidence_level, 1.96)
+        
+        margin_of_error: float = t_critical * mean_sem
+        
+        # Apply configurable confidence margin
+        if stat_config.use_continuity_correction:
+            margin_of_error += stat_config.confidence_margin
+        
+        # Compute CI bounds around the mean (in probability space [0-1], clamped to valid range)
+        lower_bound: float = max(0.0, mean_confidence - margin_of_error)
+        upper_bound: float = min(1.0, mean_confidence + margin_of_error)
         
         return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
     
