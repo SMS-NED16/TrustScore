@@ -253,8 +253,18 @@ for error_type in error_types:
                 perturbed["unique_dataset_id"] = f"{perturbed.get('sample_id', 'unknown')}-{perturbed.get('model', 'unknown')}"
             if error_type == "PLACEBO":
                 perturbed["response"] = sample["response"] + " \n"
+                perturbed["error_subtype_injected"] = "placebo"
+                perturbed["change_description"] = "Added trailing whitespace (format-only change, placeholder mode)"
             else:
                 perturbed["response"] = sample["response"] + f" [MOCK_{error_type}_ERROR]"
+                # Assign a default subtype based on error type
+                default_subtypes = {
+                    "T": "factual_error",
+                    "B": "demographic_bias",
+                    "E": "unclear_explanation"
+                }
+                perturbed["error_subtype_injected"] = default_subtypes.get(error_type, "unknown")
+                perturbed["change_description"] = f"Added mock error marker [MOCK_{error_type}_ERROR] (placeholder mode)"
             perturbed_samples.append(perturbed)
     
     # Save perturbed dataset
@@ -340,11 +350,9 @@ for error_type in error_types:
 print("\n" + "=" * 70)
 print("STEP 4: Score Comparison Analysis")
 print("=" * 70)
-print("\nReady for analysis. Uncomment the code below to run comparisons:")
+print("\nRunning score comparison analysis...")
 print("=" * 70)
 
-# Uncomment when ready to run analysis:
-"""
 comparisons = {}
 
 for error_type in tqdm(error_types, desc="Comparing scores", unit="error_type"):
@@ -367,7 +375,6 @@ if comparisons:
     generate_report(comparisons, report_path)
     save_to_drive(report_path)
     print(f"\n✓ Final report saved to {report_path}")
-"""
 
 print("\n" + "=" * 70)
 print("PIPELINE COMPLETE!")

@@ -57,11 +57,35 @@ Remember: Each error span MUST include a clear, detailed explanation explaining 
         try:
             messages = self.llm_provider.format_messages(self.system_prompt, user_prompt)
             content: str = self.llm_provider.generate(messages)
+            
+            # DEBUG: Log the raw LLM response
+            print(f"[DEBUG Span Tagger] Raw LLM response (first 1000 chars):\n{content[:1000]}")
+            print(f"[DEBUG Span Tagger] Full response length: {len(content)} chars")
+            
             spans_data: Dict[str, Any] = self._parse_response(content)
             
-            return self._create_spans_level_tags(spans_data, llm_record.llm_response)
+            # DEBUG: Log the parsed spans data
+            print(f"[DEBUG Span Tagger] Parsed spans_data: {spans_data}")
+            if "spans" in spans_data:
+                print(f"[DEBUG Span Tagger] Number of spans in parsed data: {len(spans_data['spans'])}")
+                if len(spans_data['spans']) > 0:
+                    print(f"[DEBUG Span Tagger] First span keys: {list(spans_data['spans'].keys())[:3]}")
+            else:
+                print(f"[DEBUG Span Tagger] WARNING: 'spans' key not found in parsed data!")
+            
+            result = self._create_spans_level_tags(spans_data, llm_record.llm_response)
+            
+            # DEBUG: Log final result
+            print(f"[DEBUG Span Tagger] Final spans created: {len(result.spans)}")
+            if len(result.spans) > 0:
+                for span_id, span in list(result.spans.items())[:3]:
+                    print(f"[DEBUG Span Tagger] Span {span_id}: type={span.type.value}, start={span.start}, end={span.end}")
+            
+            return result
             
         except Exception as e:
+            print(f"[DEBUG Span Tagger] Error in span tagging: {str(e)}")
+            print(f"[DEBUG Span Tagger] Exception type: {type(e).__name__}")
             raise RuntimeError(f"Error in span tagging: {str(e)}")
     
     def _parse_response(self, content: str) -> Dict[str, Any]:
@@ -132,8 +156,8 @@ Remember: Each error span MUST include a clear, detailed explanation explaining 
                 if not explanation or not explanation.strip():
                     raise ValueError(f"Span {span_id} has empty or whitespace-only explanation")
                 
-                # Get minimum explanation length (default 10 characters)
-                min_explanation_length = 10
+                # Get minimum explanation length (default 5 characters - reduced for debugging)
+                min_explanation_length = 5
                 if span_config and hasattr(span_config, 'min_explanation_length'):
                     min_explanation_length = span_config.min_explanation_length
                 

@@ -102,8 +102,18 @@ def run_full_analysis(
                         if error_type == "PLACEBO":
                             # For placebo in mock mode, just add whitespace
                             perturbed["response"] = sample["response"] + " \n"
+                            perturbed["error_subtype_injected"] = "placebo"
+                            perturbed["change_description"] = "Added trailing whitespace (format-only change, mock mode)"
                         else:
                             perturbed["response"] = sample["response"] + f" [MOCK_{error_type}_ERROR]"
+                            # Assign a default subtype based on error type
+                            default_subtypes = {
+                                "T": "factual_error",
+                                "B": "demographic_bias",
+                                "E": "unclear_explanation"
+                            }
+                            perturbed["error_subtype_injected"] = default_subtypes.get(error_type, "unknown")
+                            perturbed["change_description"] = f"Added mock error marker [MOCK_{error_type}_ERROR] (mock mode)"
                     perturbed_samples.append(perturbed)
                 
                 with open(perturbed_path, 'w', encoding='utf-8') as f:

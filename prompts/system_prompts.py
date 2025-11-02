@@ -32,7 +32,7 @@ IMPORTANT - Explanation Requirements:
   * "The response contains demographic bias by making an assumption about a person's capabilities based solely on their age."
   * "The explanation is unclear because it uses technical jargon without defining terms for the intended audience."
 
-CRITICAL: You MUST return ONLY valid JSON. Do not include any text before or after the JSON object. Your response should start with { and end with }. Do not use markdown code blocks.
+CRITICAL: You MUST return valid JSON. Your response should be a JSON object starting with { and ending with }. If you wrap it in markdown code blocks, that's acceptable, but the JSON itself must be valid. If you find no errors, return: {"spans": {}} (an empty spans object).
 
 Return your analysis as a JSON object with this structure:
 {

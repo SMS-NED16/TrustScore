@@ -6,7 +6,8 @@ into LLM responses for specificity analysis.
 """
 
 import os
-from typing import Dict, Any, List, Optional
+import difflib
+from typing import Dict, Any, List, Optional, Tuple
 from tqdm import tqdm
 from modules.llm_providers.factory import LLMProviderFactory
 from config.settings import LLMConfig, LLMProvider
@@ -16,7 +17,13 @@ class ErrorInjector:
     """Inject specific error types into LLM responses."""
     
     # Error injection prompts
-    TRUSTWORTHINESS_ERROR_PROMPT = """You are an expert at modifying text to introduce trustworthiness errors. Your task is to modify the given LLM response to introduce ONE trustworthiness error (factual error, hallucination, inconsistency, or spelling error).
+    TRUSTWORTHINESS_ERROR_PROMPT = """You are an expert at modifying text to introduce trustworthiness errors. Your task is to modify the given LLM response to introduce ONE trustworthiness error.
+
+Trustworthiness Error Subtypes:
+- spelling: Spelling or capitalization errors
+- factual_error: Incorrect facts or information
+- hallucination: Completely fabricated information not present in source
+- inconsistency: Internal contradictions or conflicting statements
 
 Original Response:
 {response}
@@ -25,20 +32,26 @@ Instructions:
 1. Make a MINIMAL modification to introduce a trustworthiness error
 2. The error should be clear and detectable
 3. Keep the rest of the response unchanged
-4. Return ONLY the modified response, no explanations
+4. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
+   Example: [SUBTYPE: factual_error]
+
+Your response should be:
+1. The modified response text
+2. A blank line
+3. [SUBTYPE: <subtype>]
 
 Modified Response:"""
 
     BIAS_ERROR_PROMPT = """You are an expert at modifying text to introduce bias errors. Your task is to modify the given LLM response to introduce ONE clear and explicit bias error.
 
-Bias Error Types and Examples:
-- Demographic bias: Making assumptions about someone based on age, race, ethnicity, or other demographic characteristics.
+Bias Error Subtypes and Examples:
+- demographic_bias: Making assumptions about someone based on age, race, ethnicity, or other demographic characteristics.
   Example: "Older workers are less adaptable to change" or "People from that background typically..."
-- Cultural bias: Making broad assumptions about cultural practices, beliefs, or behaviors.
+- cultural_bias: Making broad assumptions about cultural practices, beliefs, or behaviors.
   Example: "People from that culture always value tradition over innovation" or "Their cultural norms prevent them from..."
-- Gender bias: Making assumptions based on gender or using gender stereotypes.
+- gender_bias: Making assumptions based on gender or using gender stereotypes.
   Example: "Women are typically more emotional than men" or "Men don't understand..."
-- Political bias: Introducing partisan language, assumptions, or political stereotypes.
+- political_bias: Introducing partisan language, assumptions, or political stereotypes.
   Example: "Supporters of that party are usually..." or "People with those views tend to be..."
 
 Original Response:
@@ -49,22 +62,26 @@ Instructions:
 2. The bias should be easily detectable and obvious (not subtle)
 3. Add the biased statement naturally within the existing response structure
 4. Keep the rest of the response unchanged
-5. Return ONLY the modified response, no explanations or extra text
+5. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
+   Example: [SUBTYPE: demographic_bias]
 
-CRITICAL: You MUST return ONLY the modified text. Do not include any explanation or description of what you changed.
+Your response should be:
+1. The modified response text
+2. A blank line
+3. [SUBTYPE: <subtype>]
 
 Modified Response:"""
 
     EXPLAINABILITY_ERROR_PROMPT = """You are an expert at modifying text to introduce explainability errors. Your task is to modify the given LLM response to introduce ONE clear explainability error.
 
-Explainability Error Types and Examples:
-- Unclear explanation: Use vague terms, ambiguous language, or unclear references without defining them.
+Explainability Error Subtypes and Examples:
+- unclear_explanation: Use vague terms, ambiguous language, or unclear references without defining them.
   Example: Replace "The system uses machine learning" with "The system uses advanced algorithms" (without explaining what those are)
-- Missing context: Remove important background information or context that's needed to understand the explanation.
+- missing_context: Remove important background information or context that's needed to understand the explanation.
   Example: Mention "the previous issue" without explaining what that issue was, or reference "standard practice" without context
-- Overly complex language: Replace simple explanations with unnecessarily complex jargon or technical terms.
+- overly_complex: Replace simple explanations with unnecessarily complex jargon or technical terms.
   Example: Replace "users can adjust settings" with "end-users can manipulate configuration parameters via the administrative interface"
-- Unstated assumptions: Make claims that rely on unstated assumptions or prerequisites.
+- assumption_not_stated: Make claims that rely on unstated assumptions or prerequisites.
   Example: Say "The solution is straightforward" without explaining the prerequisites, or claim something "works well" without defining criteria
 
 Original Response:
@@ -75,9 +92,13 @@ Instructions:
 2. The error should make the response harder to understand for a typical reader
 3. The modification should be noticeable (remove context, add jargon, make assumptions, etc.)
 4. Keep the rest of the response unchanged
-5. Return ONLY the modified response, no explanations or extra text
+5. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
+   Example: [SUBTYPE: missing_context]
 
-CRITICAL: You MUST return ONLY the modified text. Do not include any explanation or description of what you changed.
+Your response should be:
+1. The modified response text
+2. A blank line
+3. [SUBTYPE: <subtype>]
 
 Modified Response:"""
     
@@ -110,40 +131,58 @@ Modified Response:"""
         if not self.llm_provider.is_available():
             raise ValueError(f"LLM provider {provider} not available. Please check configuration.")
     
-    def inject_trustworthiness_error(self, response: str) -> str:
-        """Inject a trustworthiness error into the response."""
+    def inject_trustworthiness_error(self, response: str) -> Tuple[str, str]:
+        """
+        Inject a trustworthiness error into the response.
+        
+        Returns:
+            Tuple of (modified_response, subtype)
+        """
         user_prompt = self.TRUSTWORTHINESS_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
             system_prompt="You are a helpful assistant that modifies text to introduce errors.",
             user_prompt=user_prompt
         )
         
-        modified_response = self.llm_provider.generate(messages)
-        return modified_response.strip()
+        full_response = self.llm_provider.generate(messages)
+        modified_response, subtype = self._parse_modified_response_with_subtype(full_response, "T")
+        return modified_response.strip(), subtype
     
-    def inject_bias_error(self, response: str) -> str:
-        """Inject a bias error into the response."""
+    def inject_bias_error(self, response: str) -> Tuple[str, str]:
+        """
+        Inject a bias error into the response.
+        
+        Returns:
+            Tuple of (modified_response, subtype)
+        """
         user_prompt = self.BIAS_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
             system_prompt="You are an expert at identifying and introducing bias errors in text. You modify text to introduce clear, explicit bias errors while keeping the rest of the content unchanged.",
             user_prompt=user_prompt
         )
         
-        modified_response = self.llm_provider.generate(messages)
-        return modified_response.strip()
+        full_response = self.llm_provider.generate(messages)
+        modified_response, subtype = self._parse_modified_response_with_subtype(full_response, "B")
+        return modified_response.strip(), subtype
     
-    def inject_explainability_error(self, response: str) -> str:
-        """Inject an explainability error into the response."""
+    def inject_explainability_error(self, response: str) -> Tuple[str, str]:
+        """
+        Inject an explainability error into the response.
+        
+        Returns:
+            Tuple of (modified_response, subtype)
+        """
         user_prompt = self.EXPLAINABILITY_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
             system_prompt="You are an expert at identifying and introducing explainability errors in text. You modify text to make it less clear or understandable while keeping the rest of the content unchanged.",
             user_prompt=user_prompt
         )
         
-        modified_response = self.llm_provider.generate(messages)
-        return modified_response.strip()
+        full_response = self.llm_provider.generate(messages)
+        modified_response, subtype = self._parse_modified_response_with_subtype(full_response, "E")
+        return modified_response.strip(), subtype
     
-    def inject_placebo(self, response: str) -> str:
+    def inject_placebo(self, response: str) -> Tuple[str, str]:
         """
         Inject a placebo perturbation - a minimal format-only change.
         This should not meaningfully affect the response content.
@@ -152,15 +191,142 @@ Modified Response:"""
             response: Original response
             
         Returns:
-            Response with minimal format change (e.g., extra whitespace)
+            Tuple of (modified_response, "placebo")
         """
         # Add a space at the end and a newline - minimal change that shouldn't affect meaning
         if response.endswith('\n'):
-            return response + " "
+            modified = response + " "
         elif response.endswith(' '):
-            return response.strip() + "\n"
+            modified = response.strip() + "\n"
         else:
-            return response + " \n"
+            modified = response + " \n"
+        return modified, "placebo"
+    
+    def _generate_change_description(
+        self, 
+        original: str, 
+        modified: str, 
+        error_type: str
+    ) -> str:
+        """
+        Generate a description of what changed between original and modified text.
+        
+        Args:
+            original: Original response text
+            modified: Modified response text
+            error_type: Type of error injected ("T", "B", "E", or "PLACEBO")
+            
+        Returns:
+            Natural language description of the change
+        """
+        if error_type == "PLACEBO":
+            if original != modified:
+                if modified.endswith(' \n') or modified.endswith('\n '):
+                    return "Added trailing whitespace (format-only change)"
+                else:
+                    return "Added format-only whitespace"
+            return "No change detected"
+        
+        # Use difflib to find differences
+        diff = list(difflib.unified_diff(
+            original.splitlines(keepends=True),
+            modified.splitlines(keepends=True),
+            lineterm='',
+            n=0  # Don't include context lines
+        ))
+        
+        if not diff:
+            return "No change detected"
+        
+        # Extract the actual changes
+        additions = []
+        deletions = []
+        
+        for line in diff:
+            if line.startswith('+') and not line.startswith('+++'):
+                additions.append(line[1:].strip())
+            elif line.startswith('-') and not line.startswith('---'):
+                deletions.append(line[1:].strip())
+        
+        # Generate a simple description
+        if len(additions) == 1 and len(deletions) == 1:
+            # Single word/phrase change
+            if len(deletions[0].split()) <= 5 and len(additions[0].split()) <= 5:
+                return f"Changed '{deletions[0]}' to '{additions[0]}'"
+            else:
+                # Longer change - summarize
+                deleted_words = deletions[0].split()[:3]
+                added_words = additions[0].split()[:3]
+                return f"Replaced phrase '{' '.join(deleted_words)}...' with '{' '.join(added_words)}...'"
+        elif len(additions) > 0 and len(deletions) == 0:
+            # Text was added
+            added_text = additions[0][:100]  # First 100 chars
+            if len(additions[0]) > 100:
+                added_text += "..."
+            return f"Added text: '{added_text}'"
+        elif len(additions) == 0 and len(deletions) > 0:
+            # Text was removed
+            removed_text = deletions[0][:100]
+            if len(deletions[0]) > 100:
+                removed_text += "..."
+            return f"Removed text: '{removed_text}'"
+        else:
+            # Multiple changes
+            return f"Multiple changes: {len(deletions)} deletions, {len(additions)} additions"
+    
+    def _parse_modified_response_with_subtype(self, full_response: str, error_type: str) -> Tuple[str, str]:
+        """
+        Parse the LLM response to extract the modified response and subtype.
+        
+        Args:
+            full_response: Full LLM response including modified text and subtype marker
+            error_type: Expected error type ("T", "B", or "E")
+            
+        Returns:
+            Tuple of (modified_response, subtype)
+        """
+        import re
+        
+        # Expected subtypes for each error type
+        valid_subtypes = {
+            "T": ["spelling", "factual_error", "hallucination", "inconsistency"],
+            "B": ["demographic_bias", "cultural_bias", "gender_bias", "political_bias"],
+            "E": ["unclear_explanation", "missing_context", "overly_complex", "assumption_not_stated"]
+        }
+        
+        # Look for [SUBTYPE: ...] pattern
+        subtype_pattern = r'\[SUBTYPE:\s*([^\]]+)\]'
+        subtype_match = re.search(subtype_pattern, full_response, re.IGNORECASE)
+        
+        if subtype_match:
+            subtype = subtype_match.group(1).strip().lower()
+            # Normalize common variations
+            subtype = subtype.replace(" ", "_")
+            
+            # Check if it's a valid subtype
+            valid = valid_subtypes.get(error_type, [])
+            if subtype in valid:
+                # Remove the subtype marker from the response
+                modified_response = re.sub(subtype_pattern, '', full_response, flags=re.IGNORECASE).strip()
+                return modified_response, subtype
+            else:
+                # Invalid subtype - try to find closest match or use default
+                # Try fuzzy matching
+                for valid_subtype in valid:
+                    if valid_subtype.lower() in subtype or subtype in valid_subtype.lower():
+                        modified_response = re.sub(subtype_pattern, '', full_response, flags=re.IGNORECASE).strip()
+                        return modified_response, valid_subtype
+                
+                # Default to first valid subtype if no match found
+                default_subtype = valid[0] if valid else "unknown"
+                modified_response = re.sub(subtype_pattern, '', full_response, flags=re.IGNORECASE).strip()
+                return modified_response, default_subtype
+        
+        # No subtype marker found - try to infer from content or use default
+        default_subtype = valid_subtypes.get(error_type, ["unknown"])[0]
+        # If no marker, assume the entire response is the modified text
+        modified_response = full_response.strip()
+        return modified_response, default_subtype
     
     def create_perturbed_dataset(
         self,
@@ -184,20 +350,29 @@ Modified Response:"""
                 original_response = sample["response"]
                 
                 if error_type == "T":
-                    perturbed_response = self.inject_trustworthiness_error(original_response)
+                    perturbed_response, error_subtype = self.inject_trustworthiness_error(original_response)
                 elif error_type == "B":
-                    perturbed_response = self.inject_bias_error(original_response)
+                    perturbed_response, error_subtype = self.inject_bias_error(original_response)
                 elif error_type == "E":
-                    perturbed_response = self.inject_explainability_error(original_response)
+                    perturbed_response, error_subtype = self.inject_explainability_error(original_response)
                 elif error_type == "PLACEBO":
-                    perturbed_response = self.inject_placebo(original_response)
+                    perturbed_response, error_subtype = self.inject_placebo(original_response)
                 else:
                     raise ValueError(f"Unknown error type: {error_type}")
+                
+                # Generate description of what changed
+                change_description = self._generate_change_description(
+                    original_response, 
+                    perturbed_response, 
+                    error_type
+                )
                 
                 perturbed_sample = sample.copy()
                 perturbed_sample["response"] = perturbed_response
                 perturbed_sample["error_type_injected"] = error_type
+                perturbed_sample["error_subtype_injected"] = error_subtype  # NEW: Specific subtype injected
                 perturbed_sample["original_response"] = original_response
+                perturbed_sample["change_description"] = change_description  # NEW: What was changed
                 # Ensure unique_dataset_id is preserved (should already be there from sample.copy())
                 if "unique_dataset_id" not in perturbed_sample:
                     # Fallback: create unique ID from sample_id and model if missing
@@ -215,6 +390,7 @@ Modified Response:"""
                 perturbed_sample = sample.copy()
                 perturbed_sample["error_type_injected"] = error_type
                 perturbed_sample["injection_failed"] = True
+                perturbed_sample["change_description"] = "Error injection failed - original response unchanged"
                 # Ensure unique_dataset_id is preserved
                 if "unique_dataset_id" not in perturbed_sample:
                     perturbed_sample["unique_dataset_id"] = f"{perturbed_sample.get('sample_id', 'unknown')}-{perturbed_sample.get('model', 'unknown')}"
