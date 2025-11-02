@@ -413,3 +413,8 @@ except:
 finally:
     if logger is not None:
         cleanup_logging(logger)
+        
+        # Save log file to Google Drive (after file is closed)
+        log_file_path = os.path.join(output_dir, "execution.log")
+        if os.path.exists(log_file_path):
+            save_to_drive(log_file_path)
