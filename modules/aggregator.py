@@ -218,26 +218,34 @@ class Aggregator:
         """
         Calculate confidence interval using ensemble statistics and configurable parameters.
         
+        Note: The aggregated score is the SUM of severity scores, so the CI is computed
+        around the sum to maintain unit consistency.
+        
         Args:
             confidences: List of confidence values
             scores: List of corresponding scores
             
         Returns:
-            ConfidenceInterval: Calculated confidence interval
+            ConfidenceInterval: Calculated confidence interval around the sum
         """
         if not confidences or not scores:
             return ConfidenceInterval(lower=None, upper=None)
         
         # Use ensemble statistics for better confidence intervals
         mean_confidence: float = statistics.mean(confidences)
-        mean_score: float = statistics.mean(scores)
         
-        # Calculate standard error of the mean
+        # Calculate sum of scores (matches aggregated score calculation)
+        sum_score: float = sum(scores)
+        
+        # Calculate standard error of the SUM (not the mean)
+        # For independent scores: Var(sum) = n * Var(individual), so SE(sum) = sqrt(n) * std(individual)
         if len(scores) > 1:
             score_std: float = statistics.stdev(scores)
-            score_sem: float = score_std / (len(scores) ** 0.5)  # Standard Error of Mean
+            # Standard error of sum = sqrt(n) * standard deviation
+            n: int = len(scores)
+            sum_sem: float = score_std * (n ** 0.5)
         else:
-            score_sem: float = 0
+            sum_sem: float = 0
         
         # Use confidence level from config
         confidence_level: float = self.config.confidence_level
@@ -254,14 +262,15 @@ class Aggregator:
             # Use z-score for large samples with configurable values
             t_critical = stat_config.fallback_z_scores.get(confidence_level, 1.96)
         
-        margin_of_error: float = t_critical * score_sem
+        margin_of_error: float = t_critical * sum_sem
         
         # Apply configurable confidence margin
         if stat_config.use_continuity_correction:
             margin_of_error += stat_config.confidence_margin
         
-        lower_bound: float = mean_score - margin_of_error
-        upper_bound: float = mean_score + margin_of_error
+        # Compute CI bounds around the sum (consistent with aggregated score units)
+        lower_bound: float = sum_score - margin_of_error
+        upper_bound: float = sum_score + margin_of_error
         
         return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
     
@@ -338,11 +347,46 @@ class Aggregator:
             # Determine severity bucket
             severity_bucket: str = self.config.get_severity_bucket(avg_severity)
             
-            # Create confidence interval for this error
-            confidence_ci: ConfidenceInterval = ConfidenceInterval(
-                lower=max(0, avg_confidence - 0.05),
-                upper=min(1, avg_confidence + 0.05)
-            )
+            # Calculate statistical confidence interval for this error (in probability space [0-1])
+            # Based on variance in judge-level confidences
+            confidences: List[float] = [analysis.confidence for analysis in span.analysis.values()]
+            
+            if len(confidences) > 1:
+                # Calculate standard error of the mean for confidences
+                confidence_std: float = statistics.stdev(confidences)
+                confidence_sem: float = confidence_std / (len(confidences) ** 0.5)  # Standard Error of Mean
+                
+                # Use confidence level from config
+                confidence_level: float = self.config.confidence_level
+                
+                # Use configurable statistical parameters
+                stat_config = self.config.statistical
+                
+                # Calculate t-statistic for small samples (more accurate than z-score)
+                if len(confidences) <= stat_config.min_sample_size_for_t_dist:
+                    # Use t-distribution for small samples with configurable values
+                    t_critical = stat_config.t_critical_values.get(len(confidences), 2.0)
+                else:
+                    # Use z-score for large samples with configurable values
+                    t_critical = stat_config.fallback_z_scores.get(confidence_level, 1.96)
+                
+                margin_of_error: float = t_critical * confidence_sem
+                
+                # Apply configurable confidence margin
+                if stat_config.use_continuity_correction:
+                    margin_of_error += stat_config.confidence_margin
+                
+                # Compute CI bounds around mean confidence (in probability space [0-1])
+                confidence_ci: ConfidenceInterval = ConfidenceInterval(
+                    lower=max(0.0, avg_confidence - margin_of_error),
+                    upper=min(1.0, avg_confidence + margin_of_error)
+                )
+            else:
+                # Single judge or no variance - use fixed margin as fallback
+                confidence_ci: ConfidenceInterval = ConfidenceInterval(
+                    lower=max(0.0, avg_confidence - 0.05),
+                    upper=min(1.0, avg_confidence + 0.05)
+                )
             
             # Extract weights from first judge analysis (all judges of same type should have same weights)
             weights: Optional[JudgeWeights] = None
