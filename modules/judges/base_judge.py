@@ -133,7 +133,7 @@ Please analyze this error span for severity."""
         if not content:
             raise ValueError("Empty response from LLM")
         
-        # Try markdown code block first
+        # Try markdown code block first (most reliable)
         json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
         if json_block:
             try:
@@ -149,12 +149,108 @@ Please analyze this error span for severity."""
             except json.JSONDecodeError:
                 pass
         
-        # If parsing fails, raise error (judges need valid JSON)
+        # Fallback: Parse structured markdown format
+        try:
+            return self._parse_markdown_response(content)
+        except Exception:
+            pass
+        
+        # If all parsing fails, raise error
         content_preview = content[:500] if len(content) > 500 else content
         raise ValueError(
             f"Failed to parse judge response as JSON\n"
             f"Response content (first 500 chars): {content_preview}"
         )
+    
+    def _parse_markdown_response(self, content: str) -> Dict[str, Any]:
+        """Parse markdown-formatted judge response into JSON structure."""
+        import re
+        
+        result = {
+            "indicators": {},
+            "weights": {},
+            "confidence": 0.5,
+            "severity_score": 0.0,
+            "severity_bucket": "major"
+        }
+        
+        # Pattern 1: **centrality:** 0.2 (description) or **centrality:** 0.2
+        pattern1 = r'\*\*(centrality|domain_sensitivity|harm_potential|instruction_criticality)\*\*:\s*([0-9.]+)(?:\s*\([^)]*\))?'
+        for match in re.finditer(pattern1, content, re.IGNORECASE):
+            key = match.group(1).lower().replace(' ', '_')
+            value = float(match.group(2))
+            result["indicators"][key] = value
+        
+        # Pattern 2: * **centrality:** 0.2 or - centrality: 0.2 (description)
+        pattern2 = r'[-*]\s*(?:\*\*)?(centrality|domain_sensitivity|harm_potential|instruction_criticality)(?:\*\*)?:\s*([0-9.]+)(?:\s*\([^)]*\))?'
+        for match in re.finditer(pattern2, content, re.IGNORECASE):
+            key = match.group(1).lower().replace(' ', '_')
+            value = float(match.group(2))
+            if key not in result["indicators"]:
+                result["indicators"][key] = value
+        
+        # Pattern 3: centrality: 0.2 (without bullet, at start of line)
+        pattern3 = r'^(?:[-*]\s*)?(centrality|domain_sensitivity|harm_potential|instruction_criticality)[:\s]+([0-9.]+)'
+        for match in re.finditer(pattern3, content, re.IGNORECASE | re.MULTILINE):
+            key = match.group(1).lower().replace(' ', '_')
+            value = float(match.group(2))
+            if key not in result["indicators"]:
+                result["indicators"][key] = value
+        
+        # Extract confidence (with or without markdown)
+        confidence_patterns = [
+            r'\*\*confidence\*\*:\s*([0-9.]+)',
+            r'[-*]\s*confidence[:\s]+([0-9.]+)',
+            r'confidence[:\s]+([0-9.]+)'
+        ]
+        for pattern in confidence_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                result["confidence"] = float(match.group(1))
+                break
+        
+        # Extract severity_score
+        severity_patterns = [
+            r'\*\*severity\s*score\*\*:\s*([0-9.]+)',
+            r'[-*]\s*severity\s*score[:\s]+([0-9.]+)',
+            r'severity\s*score[:\s]+([0-9.]+)'
+        ]
+        for pattern in severity_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                result["severity_score"] = float(match.group(1))
+                break
+        
+        # Extract severity_bucket
+        bucket_patterns = [
+            r'\*\*severity\s*bucket\*\*:\s*["\']?(\w+)["\']?',
+            r'[-*]\s*severity\s*bucket[:\s]+["\']?(\w+)["\']?',
+            r'severity\s*bucket[:\s]+["\']?(\w+)["\']?',
+            r'severity\s*classification[:\s]+["\']?(\w+)["\']?'
+        ]
+        for pattern in bucket_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                bucket = match.group(1).lower()
+                result["severity_bucket"] = bucket
+                break
+        
+        # Set default weights (all 1.0 if not specified)
+        if not result["weights"]:
+            result["weights"] = {
+                "centrality": 1.0,
+                "domain_sensitivity": 1.0,
+                "harm_potential": 1.0,
+                "instruction_criticality": 1.0
+            }
+        
+        # Ensure all required indicators are present (set defaults if missing)
+        required_indicators = ["centrality", "domain_sensitivity", "harm_potential", "instruction_criticality"]
+        for indicator in required_indicators:
+            if indicator not in result["indicators"]:
+                result["indicators"][indicator] = 0.5  # Default value
+        
+        return result
     
     def _create_judge_analysis(self, analysis_data: Dict[str, Any]) -> JudgeAnalysis:
         """Create JudgeAnalysis object from parsed data."""
