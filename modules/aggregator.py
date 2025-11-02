@@ -347,10 +347,51 @@ class Aggregator:
             # Determine severity bucket
             severity_bucket: str = self.config.get_severity_bucket(avg_severity)
             
-            # Calculate statistical confidence interval for this error (in probability space [0-1])
-            # Based on variance in judge-level confidences
+            # Collect all judge-level scores and confidences
+            severity_scores: List[float] = [analysis.severity_score for analysis in span.analysis.values()]
             confidences: List[float] = [analysis.confidence for analysis in span.analysis.values()]
             
+            # Calculate statistical confidence interval for severity score (in severity space)
+            # Based on variance in judge-level severity scores
+            if len(severity_scores) > 1:
+                # Calculate standard error of the mean for severity scores
+                severity_std: float = statistics.stdev(severity_scores)
+                severity_sem: float = severity_std / (len(severity_scores) ** 0.5)  # Standard Error of Mean
+                
+                # Use confidence level from config
+                confidence_level: float = self.config.confidence_level
+                
+                # Use configurable statistical parameters
+                stat_config = self.config.statistical
+                
+                # Calculate t-statistic for small samples (more accurate than z-score)
+                if len(severity_scores) <= stat_config.min_sample_size_for_t_dist:
+                    # Use t-distribution for small samples with configurable values
+                    t_critical = stat_config.t_critical_values.get(len(severity_scores), 2.0)
+                else:
+                    # Use z-score for large samples with configurable values
+                    t_critical = stat_config.fallback_z_scores.get(confidence_level, 1.96)
+                
+                margin_of_error: float = t_critical * severity_sem
+                
+                # Apply configurable confidence margin
+                if stat_config.use_continuity_correction:
+                    margin_of_error += stat_config.confidence_margin
+                
+                # Compute CI bounds around mean severity score (in severity space)
+                severity_score_ci: ConfidenceInterval = ConfidenceInterval(
+                    lower=avg_severity - margin_of_error,
+                    upper=avg_severity + margin_of_error
+                )
+            else:
+                # Single judge or no variance - use fixed margin as fallback
+                severity_score_ci: ConfidenceInterval = ConfidenceInterval(
+                    lower=avg_severity - 0.1,
+                    upper=avg_severity + 0.1
+                )
+            
+            # Calculate statistical confidence interval for confidence (in probability space [0-1])
+            # Based on variance in judge-level confidences
             if len(confidences) > 1:
                 # Calculate standard error of the mean for confidences
                 confidence_std: float = statistics.stdev(confidences)
@@ -399,7 +440,9 @@ class Aggregator:
                 subtype=span.subtype,
                 severity_bucket=severity_bucket,
                 severity_score=avg_severity,
-                confidence=confidence_ci,
+                severity_score_ci=severity_score_ci,
+                confidence_level=avg_confidence,
+                confidence_ci=confidence_ci,
                 explanation=span.explanation,
                 weights=weights
             )

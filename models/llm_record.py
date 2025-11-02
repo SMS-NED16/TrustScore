@@ -249,8 +249,10 @@ class ErrorSummary(BaseModel):
     type: ErrorType
     subtype: str
     severity_bucket: SeverityBucket
-    severity_score: float
-    confidence: ConfidenceInterval
+    severity_score: float = Field(..., description="Mean severity score across judges (in severity space)")
+    severity_score_ci: ConfidenceInterval = Field(..., description="Confidence interval for severity score (in severity space)")
+    confidence_level: float = Field(..., ge=0, le=1, description="Mean confidence across judges (in probability space [0-1])")
+    confidence_ci: ConfidenceInterval = Field(..., description="Confidence interval for judge confidence (in probability space [0-1])")
     explanation: str = Field(..., description="Human-readable explanation of the error")
     weights: Optional[JudgeWeights] = Field(default=None, description="Weights used by judges for this error type")
 
@@ -339,9 +341,15 @@ class AggregatedOutput(BaseModel):
                     "explanation": span.explanation
                 }
                 if output_config.include_confidence_intervals:
-                    raw_span_data["confidence"] = {
-                        "lower": span.confidence.lower,
-                        "upper": span.confidence.upper
+                    # Include both CIs with clear naming to distinguish spaces
+                    raw_span_data["severity_score_ci"] = {
+                        "lower": span.severity_score_ci.lower,
+                        "upper": span.severity_score_ci.upper
+                    }
+                    raw_span_data["confidence_level"] = span.confidence_level
+                    raw_span_data["confidence_ci"] = {
+                        "lower": span.confidence_ci.lower,
+                        "upper": span.confidence_ci.upper
                     }
                 base_data["raw_spans"][span_id] = raw_span_data
         else:
@@ -356,9 +364,18 @@ class AggregatedOutput(BaseModel):
                 }
                 
                 if output_config.include_confidence_intervals:
-                    error_data["confidence"] = {
-                        "lower": error_summary.confidence.lower,
-                        "upper": error_summary.confidence.upper
+                    # Include both CIs with clear naming to distinguish spaces
+                    # severity_score_ci: CI for severity score (in severity space)
+                    # confidence_level: Mean confidence (in probability space [0-1])
+                    # confidence_ci: CI for judge confidence (in probability space [0-1])
+                    error_data["severity_score_ci"] = {
+                        "lower": error_summary.severity_score_ci.lower,
+                        "upper": error_summary.severity_score_ci.upper
+                    }
+                    error_data["confidence_level"] = error_summary.confidence_level
+                    error_data["confidence_ci"] = {
+                        "lower": error_summary.confidence_ci.lower,
+                        "upper": error_summary.confidence_ci.upper
                     }
                 
                 # Add ensemble statistics if requested
