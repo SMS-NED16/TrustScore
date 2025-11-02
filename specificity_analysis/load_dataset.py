@@ -70,8 +70,11 @@ def load_and_sample_dataset(
                 f"Current working directory: {current_dir}"
             )
         
-        # Load SummEval data with sources
-        summeval_data = load_summeval_with_sources(jsonl_path, max_samples=max_samples)
+        # Load SummEval data with sources (load ALL to ensure diversity across articles)
+        # Don't limit at this stage - we'll sample later to ensure diverse articles
+        print(f"Loading all SummEval samples to ensure article diversity...")
+        summeval_data = load_summeval_with_sources(jsonl_path, max_samples=None)  # Load all
+        print(f"Loaded {len(summeval_data)} total samples from dataset")
         
         # Convert to TrustScore format
         samples = []
@@ -85,7 +88,8 @@ def load_and_sample_dataset(
                 prompt = "Generate a summary of the article."
             
             samples.append({
-                "sample_id": sample.get("id", ""),
+                "sample_id": sample.get("id", ""),  # Original article ID
+                "unique_dataset_id": sample.get("unique_dataset_id", ""),  # Unique identifier (article_id + model_id)
                 "prompt": prompt,
                 "response": summary,
                 "model": sample.get("model_id", "unknown"),
@@ -97,9 +101,56 @@ def load_and_sample_dataset(
                 }
             })
         
-        # Randomly sample if needed
+        # Randomly sample across different articles to ensure diversity
         if max_samples and len(samples) > max_samples:
-            samples = random.sample(samples, max_samples)
+            from collections import defaultdict
+            
+            # Group by article ID (sample_id) to understand distribution
+            article_groups = defaultdict(list)
+            for sample in samples:
+                article_id = sample.get("sample_id", "")
+                article_groups[article_id].append(sample)
+            
+            print(f"Found {len(article_groups)} unique articles in dataset")
+            print(f"Attempting to sample {max_samples} samples across different articles...")
+            
+            # Strategy: Sample one summary per article to ensure diverse articles
+            if len(article_groups) >= max_samples:
+                # We have enough articles - sample one summary per article
+                sampled_article_ids = random.sample(list(article_groups.keys()), max_samples)
+                selected_samples = []
+                for article_id in sampled_article_ids:
+                    # Pick one random sample from this article's summaries
+                    article_samples = article_groups[article_id]
+                    selected_samples.append(random.choice(article_samples))
+                samples = selected_samples
+                print(f"✓ Sampled {len(samples)} samples from {len(sampled_article_ids)} different articles")
+            else:
+                # Not enough unique articles - sample what we can across articles, then fill remainder
+                print(f"⚠ Only {len(article_groups)} unique articles available (requested {max_samples})")
+                sampled_article_ids = list(article_groups.keys())  # Use all articles
+                selected_samples = []
+                
+                # First, get one sample from each article
+                for article_id in sampled_article_ids:
+                    article_samples = article_groups[article_id]
+                    selected_samples.append(random.choice(article_samples))
+                
+                # If we need more, randomly sample from remaining samples
+                if len(selected_samples) < max_samples:
+                    remaining_samples = [s for s in samples if s not in selected_samples]
+                    additional_needed = max_samples - len(selected_samples)
+                    if remaining_samples:
+                        additional = random.sample(remaining_samples, min(additional_needed, len(remaining_samples)))
+                        selected_samples.extend(additional)
+                
+                samples = selected_samples[:max_samples]
+                print(f"✓ Sampled {len(samples)} samples ({len(sampled_article_ids)} unique articles)")
+        
+        # Verify diversity
+        unique_article_ids = set(s.get("sample_id") for s in samples)
+        unique_dataset_ids = set(s.get("unique_dataset_id") for s in samples)
+        print(f"Final sample: {len(samples)} samples, {len(unique_article_ids)} unique articles, {len(unique_dataset_ids)} unique dataset IDs")
         
         return samples
     

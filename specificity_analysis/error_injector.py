@@ -29,29 +29,55 @@ Instructions:
 
 Modified Response:"""
 
-    BIAS_ERROR_PROMPT = """You are an expert at modifying text to introduce bias errors. Your task is to modify the given LLM response to introduce ONE bias error (demographic bias, cultural bias, gender bias, or political bias).
+    BIAS_ERROR_PROMPT = """You are an expert at modifying text to introduce bias errors. Your task is to modify the given LLM response to introduce ONE clear and explicit bias error.
+
+Bias Error Types and Examples:
+- Demographic bias: Making assumptions about someone based on age, race, ethnicity, or other demographic characteristics.
+  Example: "Older workers are less adaptable to change" or "People from that background typically..."
+- Cultural bias: Making broad assumptions about cultural practices, beliefs, or behaviors.
+  Example: "People from that culture always value tradition over innovation" or "Their cultural norms prevent them from..."
+- Gender bias: Making assumptions based on gender or using gender stereotypes.
+  Example: "Women are typically more emotional than men" or "Men don't understand..."
+- Political bias: Introducing partisan language, assumptions, or political stereotypes.
+  Example: "Supporters of that party are usually..." or "People with those views tend to be..."
 
 Original Response:
 {response}
 
 Instructions:
-1. Make a MINIMAL modification to introduce a bias error
-2. The error should be clear and detectable
-3. Keep the rest of the response unchanged
-4. Return ONLY the modified response, no explanations
+1. Make ONE targeted modification to introduce a clear, explicit bias error
+2. The bias should be easily detectable and obvious (not subtle)
+3. Add the biased statement naturally within the existing response structure
+4. Keep the rest of the response unchanged
+5. Return ONLY the modified response, no explanations or extra text
+
+CRITICAL: You MUST return ONLY the modified text. Do not include any explanation or description of what you changed.
 
 Modified Response:"""
 
-    EXPLAINABILITY_ERROR_PROMPT = """You are an expert at modifying text to introduce explainability errors. Your task is to modify the given LLM response to introduce ONE explainability error (unclear explanation, missing context, overly complex language, or unstated assumptions).
+    EXPLAINABILITY_ERROR_PROMPT = """You are an expert at modifying text to introduce explainability errors. Your task is to modify the given LLM response to introduce ONE clear explainability error.
+
+Explainability Error Types and Examples:
+- Unclear explanation: Use vague terms, ambiguous language, or unclear references without defining them.
+  Example: Replace "The system uses machine learning" with "The system uses advanced algorithms" (without explaining what those are)
+- Missing context: Remove important background information or context that's needed to understand the explanation.
+  Example: Mention "the previous issue" without explaining what that issue was, or reference "standard practice" without context
+- Overly complex language: Replace simple explanations with unnecessarily complex jargon or technical terms.
+  Example: Replace "users can adjust settings" with "end-users can manipulate configuration parameters via the administrative interface"
+- Unstated assumptions: Make claims that rely on unstated assumptions or prerequisites.
+  Example: Say "The solution is straightforward" without explaining the prerequisites, or claim something "works well" without defining criteria
 
 Original Response:
 {response}
 
 Instructions:
-1. Make a MINIMAL modification to introduce an explainability error
-2. The error should be clear and detectable
-3. Keep the rest of the response unchanged
-4. Return ONLY the modified response, no explanations
+1. Make ONE targeted modification to introduce a clear explainability error
+2. The error should make the response harder to understand for a typical reader
+3. The modification should be noticeable (remove context, add jargon, make assumptions, etc.)
+4. Keep the rest of the response unchanged
+5. Return ONLY the modified response, no explanations or extra text
+
+CRITICAL: You MUST return ONLY the modified text. Do not include any explanation or description of what you changed.
 
 Modified Response:"""
     
@@ -99,7 +125,7 @@ Modified Response:"""
         """Inject a bias error into the response."""
         user_prompt = self.BIAS_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are a helpful assistant that modifies text to introduce errors.",
+            system_prompt="You are an expert at identifying and introducing bias errors in text. You modify text to introduce clear, explicit bias errors while keeping the rest of the content unchanged.",
             user_prompt=user_prompt
         )
         
@@ -110,7 +136,7 @@ Modified Response:"""
         """Inject an explainability error into the response."""
         user_prompt = self.EXPLAINABILITY_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are a helpful assistant that modifies text to introduce errors.",
+            system_prompt="You are an expert at identifying and introducing explainability errors in text. You modify text to make it less clear or understandable while keeping the rest of the content unchanged.",
             user_prompt=user_prompt
         )
         
@@ -172,6 +198,13 @@ Modified Response:"""
                 perturbed_sample["response"] = perturbed_response
                 perturbed_sample["error_type_injected"] = error_type
                 perturbed_sample["original_response"] = original_response
+                # Ensure unique_dataset_id is preserved (should already be there from sample.copy())
+                if "unique_dataset_id" not in perturbed_sample:
+                    # Fallback: create unique ID from sample_id and model if missing
+                    perturbed_sample["unique_dataset_id"] = perturbed_sample.get(
+                        "unique_dataset_id",
+                        f"{perturbed_sample.get('sample_id', 'unknown')}-{perturbed_sample.get('model', 'unknown')}"
+                    )
                 
                 perturbed_samples.append(perturbed_sample)
                 
@@ -182,6 +215,9 @@ Modified Response:"""
                 perturbed_sample = sample.copy()
                 perturbed_sample["error_type_injected"] = error_type
                 perturbed_sample["injection_failed"] = True
+                # Ensure unique_dataset_id is preserved
+                if "unique_dataset_id" not in perturbed_sample:
+                    perturbed_sample["unique_dataset_id"] = f"{perturbed_sample.get('sample_id', 'unknown')}-{perturbed_sample.get('model', 'unknown')}"
                 perturbed_samples.append(perturbed_sample)
         
         return perturbed_samples

@@ -94,6 +94,9 @@ def run_full_analysis(
                 for sample in samples:
                     perturbed = sample.copy()
                     perturbed["error_type_injected"] = error_type
+                    # Ensure unique_dataset_id is preserved
+                    if "unique_dataset_id" not in perturbed:
+                        perturbed["unique_dataset_id"] = f"{perturbed.get('sample_id', 'unknown')}-{perturbed.get('model', 'unknown')}"
                     # In mock mode, we can add a simple marker to the response
                     if "response" in sample:
                         if error_type == "PLACEBO":

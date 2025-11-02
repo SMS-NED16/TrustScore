@@ -43,18 +43,35 @@ def compare_scores(
     baseline_results = load_results(baseline_results_path)
     perturbed_results = load_results(perturbed_results_path)
     
-    # Create mapping by sample_id
-    baseline_map = {r["sample_id"]: r for r in baseline_results if "error" not in r}
-    perturbed_map = {r["sample_id"]: r for r in perturbed_results if "error" not in r}
+    # Create mapping by unique_dataset_id (preferred) or sample_id (fallback)
+    baseline_map = {}
+    perturbed_map = {}
+    
+    for r in baseline_results:
+        if "error" not in r:
+            # Prefer unique_dataset_id if available, fallback to sample_id
+            key = r.get("unique_dataset_id") or r.get("sample_id", "")
+            if key:
+                baseline_map[key] = r
+    
+    for r in perturbed_results:
+        if "error" not in r:
+            # Prefer unique_dataset_id if available, fallback to sample_id
+            key = r.get("unique_dataset_id") or r.get("sample_id", "")
+            if key:
+                perturbed_map[key] = r
     
     # Match samples
     matched_pairs = []
-    for sample_id in baseline_map:
-        if sample_id in perturbed_map:
+    # Use union of both sets to find all possible matches
+    all_keys = set(baseline_map.keys()) | set(perturbed_map.keys())
+    for key in all_keys:
+        if key in baseline_map and key in perturbed_map:
             matched_pairs.append({
-                "sample_id": sample_id,
-                "baseline": baseline_map[sample_id],
-                "perturbed": perturbed_map[sample_id]
+                "unique_dataset_id": key,  # Use unique_dataset_id as primary identifier
+                "sample_id": baseline_map[key].get("sample_id", ""),  # Also include sample_id for reference
+                "baseline": baseline_map[key],
+                "perturbed": perturbed_map[key]
             })
     
     print(f"Matched {len(matched_pairs)} samples for comparison")

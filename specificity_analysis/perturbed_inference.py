@@ -57,7 +57,8 @@ def run_perturbed_inference(
             
             # Format result for storage
             result_data = {
-                "sample_id": sample.get("sample_id", f"sample_{i}"),
+                "sample_id": sample.get("sample_id", f"sample_{i}"),  # Original article ID
+                "unique_dataset_id": sample.get("unique_dataset_id", f"{sample.get('sample_id', 'unknown')}-{sample.get('model', 'unknown')}"),  # Unique identifier
                 "error_type_injected": error_type,
                 "perturbed": True,
                 "trust_score": result.summary.trust_score,
@@ -86,9 +87,23 @@ def run_perturbed_inference(
                         "type": error.type.value,
                         "subtype": error.subtype,
                         "severity_score": error.severity_score,
-                        "severity_bucket": error.severity_bucket.value
+                        "severity_bucket": error.severity_bucket.value,
+                        "explanation": error.explanation  # Span tagger explanation
                     }
                     for error_id, error in result.errors.items()
+                },
+                # Include detailed span information if available
+                "spans": {
+                    span_id: {
+                        "start": span.start,
+                        "end": span.end,
+                        "type": span.type.value,
+                        "subtype": span.subtype,
+                        "explanation": span.explanation,  # Span tagger explanation
+                        "severity_score": span.get_average_severity_score(),
+                        "judge_count": len(span.analysis)
+                    }
+                    for span_id, span in (result.graded_spans.spans.items() if result.graded_spans else {}.items())
                 },
                 "timestamp": datetime.now().isoformat()
             }
@@ -104,7 +119,8 @@ def run_perturbed_inference(
         except Exception as e:
             tqdm.write(f"  Error processing sample {i+1}: {str(e)}")
             results.append({
-                "sample_id": sample.get("sample_id", f"sample_{i}"),
+                "sample_id": sample.get("sample_id", f"sample_{i}"),  # Original article ID
+                "unique_dataset_id": sample.get("unique_dataset_id", f"{sample.get('sample_id', 'unknown')}-{sample.get('model', 'unknown')}"),  # Unique identifier
                 "error_type_injected": error_type,
                 "perturbed": True,
                 "error": str(e),

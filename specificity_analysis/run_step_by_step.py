@@ -202,7 +202,8 @@ save_to_drive(samples_path)
 # Inspect first sample
 if samples:
     print("\nFirst sample preview:")
-    print(f"  Sample ID: {samples[0]['sample_id']}")
+    print(f"  Sample ID (article): {samples[0]['sample_id']}")
+    print(f"  Unique Dataset ID: {samples[0].get('unique_dataset_id', 'N/A')}")
     print(f"  Model: {samples[0]['model']}")
     print(f"  Prompt length: {len(samples[0]['prompt'])} chars")
     print(f"  Response length: {len(samples[0]['response'])} chars")
@@ -247,6 +248,9 @@ for error_type in error_types:
         for sample in tqdm(samples, desc=f"Creating {error_type}_perturbed (placeholder)", unit="sample"):
             perturbed = sample.copy()
             perturbed["error_type_injected"] = error_type
+            # Ensure unique_dataset_id is preserved
+            if "unique_dataset_id" not in perturbed:
+                perturbed["unique_dataset_id"] = f"{perturbed.get('sample_id', 'unknown')}-{perturbed.get('model', 'unknown')}"
             if error_type == "PLACEBO":
                 perturbed["response"] = sample["response"] + " \n"
             else:

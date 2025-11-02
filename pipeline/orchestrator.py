@@ -98,7 +98,16 @@ class TrustScorePipeline:
         # Step 2: Tag spans
         print("[Pipeline Step 2/4] Span Annotation: Tagging error spans...")
         spans_tags: SpansLevelTags = self.span_tagger.tag_spans(llm_record)
+        
+        # Count spans by type for debugging
+        span_counts = {"T": 0, "B": 0, "E": 0}
+        for span_id, span in spans_tags.spans.items():
+            span_counts[span.type.value] = span_counts.get(span.type.value, 0) + 1
+        
         print(f"[Pipeline Step 2/4] Span Annotation Complete: Detected {len(spans_tags.spans)} error span(s)")
+        print(f"  - Trustworthiness (T): {span_counts['T']}")
+        print(f"  - Bias (B): {span_counts['B']}")
+        print(f"  - Explainability (E): {span_counts['E']}")
         
         # Step 3: Grade spans with judges
         print(f"[Pipeline Step 3/4] Span Grading: Analyzing {len(spans_tags.spans)} span(s) with judges...")

@@ -129,16 +129,38 @@ Please analyze this error span for severity."""
         import json
         import re
         
+        # Strip whitespace and check if empty
+        content = content.strip()
+        if not content:
+            raise ValueError("Empty response from LLM")
+        
         try:
-            # Try to extract JSON from the response
-            json_match: Optional[re.Match[str]] = re.search(r'\{.*\}', content, re.DOTALL)
+            # First, try to find JSON between markdown code blocks
+            json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if json_block:
+                return json.loads(json_block.group(1))
+            
+            # Try to extract JSON from the response (improved regex for nested objects)
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
-            else:
-                # Fallback: try to parse the entire content
-                return json.loads(content)
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    # Try a more greedy match
+                    json_match_greedy = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match_greedy:
+                        return json.loads(json_match_greedy.group())
+            
+            # Fallback: try to parse the entire content
+            return json.loads(content)
+            
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse judge response as JSON: {str(e)}")
+            # Log the actual content for debugging
+            content_preview = content[:500] if len(content) > 500 else content
+            raise ValueError(
+                f"Failed to parse judge response as JSON: {str(e)}\n"
+                f"Response content (first 500 chars): {content_preview}"
+            )
     
     def _create_judge_analysis(self, analysis_data: Dict[str, Any]) -> JudgeAnalysis:
         """Create JudgeAnalysis object from parsed data."""

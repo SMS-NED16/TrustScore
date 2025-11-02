@@ -52,10 +52,13 @@ def load_summeval_with_sources(jsonl_path: str, max_samples: int = None) -> List
                 data = json.loads(line.strip())
                 
                 # Extract fields
-                sample_id = data.get("id", f"sample_{i}")
+                article_id = data.get("id", f"article_{i}")  # Original article ID
                 summary = data.get("decoded", "")
                 model_id = data.get("model_id", "unknown")
                 filepath = data.get("filepath", "")
+                
+                # Create unique dataset identifier (article_id + model_id)
+                unique_dataset_id = f"{article_id}-{model_id}"
                 
                 # Get expert annotations
                 expert_annotations = data.get("expert_annotations", [])
@@ -91,7 +94,8 @@ def load_summeval_with_sources(jsonl_path: str, max_samples: int = None) -> List
                             break
                 
                 sample = {
-                    "id": sample_id,
+                    "id": article_id,  # Original article ID
+                    "unique_dataset_id": unique_dataset_id,  # Unique identifier for this article+model combination
                     "summary": summary,
                     "model_id": model_id,
                     "filepath": filepath,
