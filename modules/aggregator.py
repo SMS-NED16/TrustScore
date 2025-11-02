@@ -70,13 +70,21 @@ class Aggregator:
               f"E={self.config.aggregation_weights.explainability:.3f}, "
               f"B={self.config.aggregation_weights.bias:.3f}")
         
-        # Calculate final trust score (using severity score CIs for trust score CI calculation)
+        # Calculate final trust score (with proper error propagation for both severity and confidence)
         trust_score: float
-        trust_ci: ConfidenceInterval
-        trust_score, trust_ci = self._calculate_trust_score(t_score, e_score, b_score, t_severity_ci, e_severity_ci, b_severity_ci)
+        trust_score_ci: ConfidenceInterval
+        trust_confidence: float
+        trust_confidence_ci: ConfidenceInterval
+        trust_score, trust_score_ci, trust_confidence, trust_confidence_ci = self._calculate_trust_score(
+            t_score, e_score, b_score,
+            t_severity_ci, e_severity_ci, b_severity_ci,
+            t_confidence, e_confidence, b_confidence,
+            t_confidence_ci, e_confidence_ci, b_confidence_ci
+        )
         
         # LOG: Final trust score
-        print(f"[DEBUG Aggregation] Final trust_score: {trust_score:.3f}")
+        print(f"[DEBUG Aggregation] Final trust_score: {trust_score:.3f} (severity space)")
+        print(f"[DEBUG Aggregation] Final trust_confidence: {trust_confidence:.3f} (probability space [0-1])")
         
         # Create aggregated summary
         summary: AggregatedSummary = AggregatedSummary(
@@ -94,9 +102,12 @@ class Aggregator:
             agg_confidence_E_ci=e_confidence_ci,
             agg_confidence_B=b_confidence,
             agg_confidence_B_ci=b_confidence_ci,
-            # Final trust score
+            # Final trust score (severity space)
             trust_score=trust_score,
-            trust_score_ci=trust_ci
+            trust_score_ci=trust_score_ci,
+            # Final trust confidence (probability space [0-1])
+            trust_confidence=trust_confidence,
+            trust_confidence_ci=trust_confidence_ci
         )
         
         # Create error summaries
@@ -182,17 +193,26 @@ class Aggregator:
         return aggregated_severity_score, severity_score_ci, mean_confidence, confidence_ci
     
     def _calculate_trust_score(self, t_score: float, e_score: float, b_score: float,
-                              t_ci: ConfidenceInterval, e_ci: ConfidenceInterval, 
-                              b_ci: ConfidenceInterval) -> Tuple[float, ConfidenceInterval]:
+                              t_severity_ci: ConfidenceInterval, e_severity_ci: ConfidenceInterval, 
+                              b_severity_ci: ConfidenceInterval,
+                              t_confidence: float, e_confidence: float, b_confidence: float,
+                              t_confidence_ci: ConfidenceInterval, e_confidence_ci: ConfidenceInterval,
+                              b_confidence_ci: ConfidenceInterval) -> Tuple[float, ConfidenceInterval, float, ConfidenceInterval]:
         """
         Calculate final trust score using configurable aggregation strategy.
         
         Args:
-            t_score, e_score, b_score: Category scores
-            t_ci, e_ci, b_ci: Category confidence intervals
+            t_score, e_score, b_score: Category severity scores
+            t_severity_ci, e_severity_ci, b_severity_ci: Category severity score CIs (in severity space)
+            t_confidence, e_confidence, b_confidence: Category confidence levels
+            t_confidence_ci, e_confidence_ci, b_confidence_ci: Category confidence CIs (in probability space [0-1])
             
         Returns:
-            Tuple of (trust_score, confidence_interval)
+            Tuple of (trust_score, trust_score_ci, trust_confidence, trust_confidence_ci)
+            - trust_score: Weighted average of T/E/B severity scores (severity space)
+            - trust_score_ci: CI for trust score with proper error propagation (severity space)
+            - trust_confidence: Weighted average of T/E/B confidences (probability space [0-1])
+            - trust_confidence_ci: CI for trust confidence with proper error propagation (probability space [0-1])
         """
         weights = self.config.aggregation_weights
         agg_strategy = self.config.aggregation_strategy
@@ -237,10 +257,24 @@ class Aggregator:
                 weights.bias * b_score
             )
         
-        # Calculate confidence interval for trust score
-        trust_ci: ConfidenceInterval = self._combine_confidence_intervals(t_ci, e_ci, b_ci, weights)
+        # Calculate trust confidence (weighted average of category confidences)
+        trust_confidence: float = (
+            weights.trustworthiness * t_confidence +
+            weights.explainability * e_confidence +
+            weights.bias * b_confidence
+        )
         
-        return trust_score, trust_ci
+        # Calculate severity score CI with proper error propagation (in severity space)
+        trust_score_ci: ConfidenceInterval = self._propagate_severity_ci(
+            t_severity_ci, e_severity_ci, b_severity_ci, weights, agg_strategy.aggregation_method
+        )
+        
+        # Calculate confidence CI with proper error propagation (in probability space [0-1])
+        trust_confidence_ci: ConfidenceInterval = self._propagate_confidence_ci(
+            t_confidence_ci, e_confidence_ci, b_confidence_ci, weights
+        )
+        
+        return trust_score, trust_score_ci, trust_confidence, trust_confidence_ci
     
     def _calculate_severity_confidence_interval(self, severity_scores: List[float]) -> ConfidenceInterval:
         """
@@ -348,6 +382,133 @@ class Aggregator:
         # Compute CI bounds around the mean (in probability space [0-1], clamped to valid range)
         lower_bound: float = max(0.0, mean_confidence - margin_of_error)
         upper_bound: float = min(1.0, mean_confidence + margin_of_error)
+        
+        return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
+    
+    def _propagate_severity_ci(self, t_ci: ConfidenceInterval, e_ci: ConfidenceInterval,
+                              b_ci: ConfidenceInterval, weights, aggregation_method: str) -> ConfidenceInterval:
+        """
+        Propagate uncertainty for severity score CIs using proper error propagation (in severity space).
+        
+        For a weighted combination Y = w1*X1 + w2*X2 + w3*X3, the variance is:
+        Var(Y) = w1^2 * Var(X1) + w2^2 * Var(X2) + w3^2 * Var(X3) (assuming independence)
+        
+        Args:
+            t_ci, e_ci, b_ci: Category severity score CIs (in severity space)
+            weights: Aggregation weights
+            aggregation_method: Method used to aggregate scores
+            
+        Returns:
+            ConfidenceInterval: Propagated CI for trust score (in severity space)
+        """
+        if not all(ci.lower is not None and ci.upper is not None 
+                   for ci in [t_ci, e_ci, b_ci]):
+            return ConfidenceInterval(lower=None, upper=None)
+        
+        # Extract centers and half-widths from input CIs
+        centers = []
+        half_widths = []
+        cis = [t_ci, e_ci, b_ci]
+        weights_list = [weights.trustworthiness, weights.explainability, weights.bias]
+        
+        for ci, weight in zip(cis, weights_list):
+            center = (ci.lower + ci.upper) / 2
+            half_width = (ci.upper - ci.lower) / 2
+            centers.append(center)
+            half_widths.append(half_width)
+        
+        # Calculate weighted center (this matches the trust_score calculation)
+        if aggregation_method == "weighted_mean":
+            weighted_center = (
+                weights.trustworthiness * centers[0] +
+                weights.explainability * centers[1] +
+                weights.bias * centers[2]
+            )
+        elif aggregation_method == "median":
+            weighted_center = statistics.median(centers)
+        elif aggregation_method == "robust_mean":
+            weighted_center = statistics.mean(centers)
+        elif aggregation_method == "max":
+            weighted_center = max(centers)
+        elif aggregation_method == "min":
+            weighted_center = min(centers)
+        elif aggregation_method == "geometric_mean":
+            weighted_center = statistics.geometric_mean(centers)
+        else:
+            # Default to weighted mean
+            weighted_center = (
+                weights.trustworthiness * centers[0] +
+                weights.explainability * centers[1] +
+                weights.bias * centers[2]
+            )
+        
+        # Propagate uncertainty using error propagation
+        # For weighted combination: Var(Y) = sum(w_i^2 * Var(X_i))
+        # Using half-width as uncertainty measure: SE ≈ half_width
+        # Combined SE = sqrt(sum(w_i^2 * half_width_i^2))
+        propagated_uncertainty: float = (
+            (weights.trustworthiness ** 2) * (half_widths[0] ** 2) +
+            (weights.explainability ** 2) * (half_widths[1] ** 2) +
+            (weights.bias ** 2) * (half_widths[2] ** 2)
+        ) ** 0.5
+        
+        # Calculate CI bounds (no clamping since we're in severity space)
+        lower_bound: float = weighted_center - propagated_uncertainty
+        upper_bound: float = weighted_center + propagated_uncertainty
+        
+        return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
+    
+    def _propagate_confidence_ci(self, t_ci: ConfidenceInterval, e_ci: ConfidenceInterval,
+                                 b_ci: ConfidenceInterval, weights) -> ConfidenceInterval:
+        """
+        Propagate uncertainty for confidence CIs using proper error propagation (in probability space [0-1]).
+        
+        For a weighted combination Y = w1*X1 + w2*X2 + w3*X3, the variance is:
+        Var(Y) = w1^2 * Var(X1) + w2^2 * Var(X2) + w3^2 * Var(X3) (assuming independence)
+        
+        Args:
+            t_ci, e_ci, b_ci: Category confidence CIs (in probability space [0-1])
+            weights: Aggregation weights
+            
+        Returns:
+            ConfidenceInterval: Propagated CI for trust confidence (in probability space [0-1], clamped)
+        """
+        if not all(ci.lower is not None and ci.upper is not None 
+                   for ci in [t_ci, e_ci, b_ci]):
+            return ConfidenceInterval(lower=None, upper=None)
+        
+        # Extract centers and half-widths from input CIs
+        centers = []
+        half_widths = []
+        cis = [t_ci, e_ci, b_ci]
+        weights_list = [weights.trustworthiness, weights.explainability, weights.bias]
+        
+        for ci, weight in zip(cis, weights_list):
+            center = (ci.lower + ci.upper) / 2
+            half_width = (ci.upper - ci.lower) / 2
+            centers.append(center)
+            half_widths.append(half_width)
+        
+        # Calculate weighted center (weighted average of confidences)
+        weighted_center: float = (
+            weights.trustworthiness * centers[0] +
+            weights.explainability * centers[1] +
+            weights.bias * centers[2]
+        )
+        
+        # Propagate uncertainty using error propagation
+        # For weighted combination: Var(Y) = sum(w_i^2 * Var(X_i))
+        # Using half-width as uncertainty measure: SE ≈ half_width
+        # Combined SE = sqrt(sum(w_i^2 * half_width_i^2))
+        propagated_uncertainty: float = (
+            (weights.trustworthiness ** 2) * (half_widths[0] ** 2) +
+            (weights.explainability ** 2) * (half_widths[1] ** 2) +
+            (weights.bias ** 2) * (half_widths[2] ** 2)
+        ) ** 0.5
+        
+        # Calculate CI bounds (clamped to [0, 1] since we're in probability space)
+        lower_bound: float = max(0.0, weighted_center - propagated_uncertainty)
+        upper_bound: float = min(1.0, weighted_center + propagated_uncertainty)
         
         return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
     

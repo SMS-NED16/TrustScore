@@ -274,8 +274,10 @@ class AggregatedSummary(BaseModel):
     agg_confidence_B: float = Field(..., ge=0, le=1, description="Mean confidence for Bias category (in probability space [0-1])")
     agg_confidence_B_ci: ConfidenceInterval = Field(..., description="Bias confidence CI (in probability space [0-1])")
     # Final trust score
-    trust_score: float = Field(..., description="Final TrustScore")
-    trust_score_ci: ConfidenceInterval = Field(..., description="TrustScore confidence interval")
+    trust_score: float = Field(..., description="Final TrustScore (weighted average of T/E/B severity scores, in severity space)")
+    trust_score_ci: ConfidenceInterval = Field(..., description="TrustScore severity score CI (in severity space, with proper error propagation)")
+    trust_confidence: float = Field(..., ge=0, le=1, description="Mean confidence for TrustScore (weighted average of T/E/B confidences, in probability space [0-1])")
+    trust_confidence_ci: ConfidenceInterval = Field(..., description="TrustScore confidence CI (in probability space [0-1], with proper error propagation)")
 
 
 class AggregatedOutput(BaseModel):
@@ -342,11 +344,17 @@ class AggregatedOutput(BaseModel):
                     "lower": self.summary.agg_confidence_B_ci.lower,
                     "upper": self.summary.agg_confidence_B_ci.upper
                 },
-                # Final trust score
+                # Final trust score (severity space)
                 "trust_score": self.summary.trust_score,
                 "trust_score_ci": {
                     "lower": self.summary.trust_score_ci.lower,
                     "upper": self.summary.trust_score_ci.upper
+                },
+                # Final trust confidence (probability space [0-1])
+                "trust_confidence": self.summary.trust_confidence,
+                "trust_confidence_ci": {
+                    "lower": self.summary.trust_confidence_ci.lower,
+                    "upper": self.summary.trust_confidence_ci.upper
                 }
             }
         else:
@@ -359,8 +367,10 @@ class AggregatedOutput(BaseModel):
                 "agg_confidence_T": self.summary.agg_confidence_T,
                 "agg_confidence_E": self.summary.agg_confidence_E,
                 "agg_confidence_B": self.summary.agg_confidence_B,
-                # Final trust score
-                "trust_score": self.summary.trust_score
+                # Final trust score (severity space)
+                "trust_score": self.summary.trust_score,
+                # Final trust confidence (probability space [0-1])
+                "trust_confidence": self.summary.trust_confidence
             }
         
         if output_config.include_raw_spans:
