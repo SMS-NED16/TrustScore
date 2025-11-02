@@ -36,6 +36,13 @@ class Aggregator:
         Returns:
             AggregatedOutput: Final aggregated scores and error summaries
         """
+        # LOG: Input summary
+        total_spans = len(graded_spans.spans)
+        t_spans = len(graded_spans.get_spans_by_type(ErrorType.TRUSTWORTHINESS))
+        b_spans = len(graded_spans.get_spans_by_type(ErrorType.BIAS))
+        e_spans = len(graded_spans.get_spans_by_type(ErrorType.EXPLAINABILITY))
+        print(f"[DEBUG Aggregation] Input: {total_spans} total spans (T={t_spans}, B={b_spans}, E={e_spans})")
+        
         # Calculate aggregated scores for each category
         t_score: float
         t_ci: ConfidenceInterval
@@ -49,10 +56,19 @@ class Aggregator:
         b_ci: ConfidenceInterval
         b_score, b_ci = self._calculate_category_score(graded_spans, ErrorType.BIAS)
         
+        # LOG: Scores before final aggregation
+        print(f"[DEBUG Aggregation] Category scores: T={t_score:.3f}, E={e_score:.3f}, B={b_score:.3f}")
+        print(f"[DEBUG Aggregation] Aggregation weights: T={self.config.aggregation_weights.trustworthiness:.3f}, "
+              f"E={self.config.aggregation_weights.explainability:.3f}, "
+              f"B={self.config.aggregation_weights.bias:.3f}")
+        
         # Calculate final trust score
         trust_score: float
         trust_ci: ConfidenceInterval
         trust_score, trust_ci = self._calculate_trust_score(t_score, e_score, b_score, t_ci, e_ci, b_ci)
+        
+        # LOG: Final trust score
+        print(f"[DEBUG Aggregation] Final trust_score: {trust_score:.3f}")
         
         # Create aggregated summary
         summary: AggregatedSummary = AggregatedSummary(
@@ -94,26 +110,42 @@ class Aggregator:
         """
         category_spans: Dict[str, GradedSpan] = graded_spans.get_spans_by_type(error_type)
         
+        print(f"[DEBUG Score Calculation] Computing {error_type.value} score: Found {len(category_spans)} span(s)")
+        
         if not category_spans:
+            print(f"[DEBUG Score Calculation] {error_type.value} score = 0.0 (no spans found)")
             return 0.0, ConfidenceInterval(lower=None, upper=None)
         
         # Collect all severity scores and confidences
         severity_scores: List[float] = []
         confidences: List[float] = []
         
-        for span in category_spans.values():
+        for span_id, span in category_spans.items():
             avg_severity: float = span.get_average_severity_score()
             avg_confidence: float = span.get_average_confidence()
+            
+            # LOG: Individual span scores
+            print(f"[DEBUG Score Calculation] {error_type.value} span {span_id}: "
+                  f"avg_severity={avg_severity:.3f}, avg_confidence={avg_confidence:.3f}, "
+                  f"subtype={span.subtype}, judge_count={len(span.analysis)}")
             
             # Apply subtype weight
             subtype_weight: float = self.config.get_error_subtype_weight(error_type.value, span.subtype)
             weighted_severity: float = avg_severity * subtype_weight
+            
+            # LOG: Weighting
+            print(f"[DEBUG Score Calculation] {error_type.value} span {span_id}: "
+                  f"subtype_weight={subtype_weight:.3f}, weighted_severity={weighted_severity:.3f}")
             
             severity_scores.append(weighted_severity)
             confidences.append(avg_confidence)
         
         # Calculate aggregated score (sum of weighted scores)
         aggregated_score: float = sum(severity_scores)
+        
+        # LOG: Final score
+        print(f"[DEBUG Score Calculation] {error_type.value} final score: {aggregated_score:.3f} "
+              f"(sum of {len(severity_scores)} span(s): {severity_scores})")
         
         # Calculate confidence interval
         confidence_interval: ConfidenceInterval = self._calculate_confidence_interval(confidences, severity_scores)

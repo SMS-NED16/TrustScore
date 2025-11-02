@@ -28,6 +28,7 @@ from specificity_analysis.error_injector import ErrorInjector
 from specificity_analysis.baseline_inference import run_baseline_inference
 from specificity_analysis.perturbed_inference import run_perturbed_inference
 from specificity_analysis.score_comparison import compare_scores, generate_report
+from specificity_analysis.dual_logger import initialize_logging, cleanup_logging
 
 from config.settings import (
     TrustScoreConfig, SpanTaggerConfig, JudgeConfig, 
@@ -158,6 +159,16 @@ def create_vllm_error_injector():
 # Setup output directory
 output_dir = "results/specificity_analysis"
 os.makedirs(output_dir, exist_ok=True)
+
+# Initialize dual logging (console + file)
+logger = None
+try:
+    logger = initialize_logging(output_dir, "execution.log")
+    print(f"Logging initialized - output will be saved to: {os.path.join(output_dir, 'execution.log')}")
+except Exception as e:
+    print(f"Warning: Could not initialize file logging: {e}")
+    print("Continuing with console-only output...")
+    logger = None
 
 # Mount Google Drive if in Colab (user can do this manually if needed)
 # Don't auto-mount to avoid blocking
@@ -393,3 +404,12 @@ print(f"  - Random seed: {RANDOM_SEED}")
 print(f"  - Temperature: {TEMPERATURE} (deterministic)")
 print(f"  - Model: {VLLM_MODEL}")
 print(f"  - Device: {DEVICE}")
+
+# Cleanup logging
+try:
+    print(f"\n✓ Execution complete. Log file saved to: {os.path.join(output_dir, 'execution.log')}")
+except:
+    pass
+finally:
+    if logger is not None:
+        cleanup_logging(logger)

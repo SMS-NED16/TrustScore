@@ -187,6 +187,15 @@ class TrustScorePipeline:
         ensemble_config = self.config.ensemble
         error_config = self.config.error_handling
         
+        # LOG: Count spans by type before processing
+        span_type_counts = {"T": 0, "B": 0, "E": 0}
+        for span_id, span in spans_tags.spans.items():
+            span_type_counts[span.type.value] = span_type_counts.get(span.type.value, 0) + 1
+        
+        print(f"[DEBUG Judge Calls] Spans detected: T={span_type_counts['T']}, B={span_type_counts['B']}, E={span_type_counts['E']}")
+        print(f"[DEBUG Judge Calls] Available judges: T={list(self.judges['trustworthiness'].keys())}, "
+              f"B={list(self.judges['bias'].keys())}, E={list(self.judges['explainability'].keys())}")
+        
         for span_id, span in spans_tags.spans.items():
             graded_span: GradedSpan = GradedSpan(
                 start=span.start,
@@ -205,9 +214,16 @@ class TrustScorePipeline:
             elif span.type.value == "E":  # Explainability
                 aspect_judges = self.judges["explainability"]
             
+            # LOG: Judge selection for this span
+            print(f"[DEBUG Judge Calls] Span {span_id} (type={span.type.value}, subtype={span.subtype}): "
+                  f"Found {len(aspect_judges)} judge(s)")
+            
+            if len(aspect_judges) == 0:
+                print(f"[WARNING Judge Calls] No judges available for span type {span.type.value}! "
+                      f"Span {span_id} will not be graded.")
+            
             # Limit judges per aspect if configured
             if len(aspect_judges) > ensemble_config.max_judges_per_aspect:
-                # Take first N judges
                 aspect_judges = dict(list(aspect_judges.items())[:ensemble_config.max_judges_per_aspect])
             
             # Track judge failures
@@ -216,12 +232,26 @@ class TrustScorePipeline:
             
             # Get analyses from all judges for this aspect
             for judge_name, judge in aspect_judges.items():
+                print(f"[DEBUG Judge Calls] Calling judge '{judge_name}' for span {span_id} (type={span.type.value})")
                 try:
                     analysis = judge.analyze_span(llm_record, span)
+                    
+                    # LOG: Successful judge call with details
+                    print(f"[DEBUG Judge Calls] ✓ Judge '{judge_name}' succeeded for span {span_id}: "
+                          f"severity_score={analysis.severity_score:.3f}, "
+                          f"confidence={analysis.confidence:.3f}, "
+                          f"severity_bucket={analysis.severity_bucket.value}")
+                    
                     graded_span.add_judge_analysis(judge_name, analysis)
                     successful_analyses += 1
                 except Exception as e:
                     judge_failures += 1
+                    # LOG: Judge failure with full details
+                    print(f"[ERROR Judge Calls] ✗ Judge '{judge_name}' FAILED for span {span_id} (type={span.type.value}): {str(e)}")
+                    print(f"[ERROR Judge Calls]   Exception type: {type(e).__name__}")
+                    import traceback
+                    print(f"[ERROR Judge Calls]   Traceback: {traceback.format_exc()}")
+                    
                     if error_config.log_level in ["DEBUG", "INFO", "WARNING"]:
                         print(f"Error from judge {judge_name}: {str(e)}")
                     
@@ -234,16 +264,34 @@ class TrustScorePipeline:
                     
                     continue
             
+            # LOG: Summary for this span
+            print(f"[DEBUG Judge Calls] Span {span_id} summary: {successful_analyses} successful, {judge_failures} failed")
+            
             # Check if we have enough analyses based on configuration
             if successful_analyses >= ensemble_config.min_judges_required:
                 # Apply consensus requirements if configured
                 if ensemble_config.require_consensus:
                     if self._check_consensus(graded_span, ensemble_config.consensus_threshold):
                         graded_spans.add_graded_span(span_id, graded_span)
+                        print(f"[DEBUG Judge Calls] Span {span_id} added to graded_spans (consensus passed)")
+                    else:
+                        print(f"[DEBUG Judge Calls] Span {span_id} NOT added (consensus failed)")
                 else:
                     graded_spans.add_graded_span(span_id, graded_span)
+                    print(f"[DEBUG Judge Calls] Span {span_id} added to graded_spans")
             elif not error_config.continue_on_span_errors:
                 raise RuntimeError(f"Insufficient judge analyses: {successful_analyses} < {ensemble_config.min_judges_required}")
+            else:
+                print(f"[WARNING Judge Calls] Span {span_id} NOT added: insufficient analyses "
+                      f"({successful_analyses} < {ensemble_config.min_judges_required})")
+        
+        # LOG: Final summary
+        graded_type_counts = {"T": 0, "B": 0, "E": 0}
+        for span_id, span in graded_spans.spans.items():
+            graded_type_counts[span.type.value] = graded_type_counts.get(span.type.value, 0) + 1
+        
+        print(f"[DEBUG Judge Calls] Final graded spans: T={graded_type_counts['T']}, "
+              f"B={graded_type_counts['B']}, E={graded_type_counts['E']}")
         
         return graded_spans
     
