@@ -129,38 +129,32 @@ Please analyze this error span for severity."""
         import json
         import re
         
-        # Strip whitespace and check if empty
         content = content.strip()
         if not content:
             raise ValueError("Empty response from LLM")
         
-        try:
-            # First, try to find JSON between markdown code blocks
-            json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-            if json_block:
+        # Try markdown code block first
+        json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if json_block:
+            try:
                 return json.loads(json_block.group(1))
-            
-            # Try to extract JSON from the response (improved regex for nested objects)
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
-            if json_match:
-                try:
-                    return json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    # Try a more greedy match
-                    json_match_greedy = re.search(r'\{.*\}', content, re.DOTALL)
-                    if json_match_greedy:
-                        return json.loads(json_match_greedy.group())
-            
-            # Fallback: try to parse the entire content
-            return json.loads(content)
-            
-        except json.JSONDecodeError as e:
-            # Log the actual content for debugging
-            content_preview = content[:500] if len(content) > 500 else content
-            raise ValueError(
-                f"Failed to parse judge response as JSON: {str(e)}\n"
-                f"Response content (first 500 chars): {content_preview}"
-            )
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to find JSON object in content
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError:
+                pass
+        
+        # If parsing fails, raise error (judges need valid JSON)
+        content_preview = content[:500] if len(content) > 500 else content
+        raise ValueError(
+            f"Failed to parse judge response as JSON\n"
+            f"Response content (first 500 chars): {content_preview}"
+        )
     
     def _create_judge_analysis(self, analysis_data: Dict[str, Any]) -> JudgeAnalysis:
         """Create JudgeAnalysis object from parsed data."""
@@ -169,7 +163,24 @@ Please analyze this error span for severity."""
             weights: JudgeWeights = JudgeWeights(**analysis_data["weights"])
             confidence: float = float(analysis_data["confidence"])
             severity_score: float = float(analysis_data["severity_score"])
-            severity_bucket: SeverityBucket = SeverityBucket(analysis_data["severity_bucket"])
+            
+            # Normalize severity bucket - map invalid values to valid ones
+            severity_bucket_str = str(analysis_data.get("severity_bucket", "")).lower().strip()
+            severity_mapping = {
+                "moderate": "major",
+                "medium": "major",
+                "low": "minor",
+                "high": "major",
+                "severe": "critical"
+            }
+            severity_bucket_str = severity_mapping.get(severity_bucket_str, severity_bucket_str)
+            
+            try:
+                severity_bucket: SeverityBucket = SeverityBucket(severity_bucket_str)
+            except ValueError:
+                # Default to MAJOR if invalid
+                print(f"[WARNING] Invalid severity bucket '{analysis_data.get('severity_bucket')}', defaulting to MAJOR")
+                severity_bucket: SeverityBucket = SeverityBucket.MAJOR
             
             return JudgeAnalysis(
                 indicators=indicators,

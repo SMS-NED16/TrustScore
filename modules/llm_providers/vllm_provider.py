@@ -48,7 +48,7 @@ class VLLMProvider(BaseLLMProvider):
                 dtype=self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto",
                 tensor_parallel_size=1,  # Single GPU for Colab
                 gpu_memory_utilization=0.9,
-                max_model_len=2048,  # Adjust based on needs
+                max_model_len=4096,  # Increased to handle longer prompts (SummEval samples)
             )
             
             # Configure sampling parameters

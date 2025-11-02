@@ -46,7 +46,7 @@ except ImportError:
 # VLLM Configuration (for Google Colab)
 VLLM_MODEL = "meta-llama/Llama-3.1-8B-Instruct"  # Or your preferred model
 TEMPERATURE = 0.0  # Deterministic (0.0 = greedy decoding)
-MAX_TOKENS = 2000
+MAX_TOKENS = 4096  # Increased to ensure complete JSON responses
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Google Drive paths

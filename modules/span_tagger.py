@@ -98,38 +98,29 @@ Remember: Each error span MUST include a clear, detailed explanation explaining 
     
     def _parse_response(self, content: str) -> Dict[str, Any]:
         """Parse the LLM response to extract span data."""
-        # Strip whitespace and check if empty
         content = content.strip()
         if not content:
-            raise ValueError("Empty response from span tagger LLM")
+            return {"spans": {}}  # Return empty spans instead of raising
         
-        try:
-            # First, try to find JSON between markdown code blocks
-            json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-            if json_block:
+        # Try markdown code block first
+        json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if json_block:
+            try:
                 return json.loads(json_block.group(1))
-            
-            # Try to extract JSON from the response (improved regex for nested objects)
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
-            if json_match:
-                try:
-                    return json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    # Try a more greedy match
-                    json_match_greedy = re.search(r'\{.*\}', content, re.DOTALL)
-                    if json_match_greedy:
-                        return json.loads(json_match_greedy.group())
-            
-            # Fallback: try to parse the entire content
-            return json.loads(content)
-            
-        except json.JSONDecodeError as e:
-            # Log the actual content for debugging
-            content_preview = content[:500] if len(content) > 500 else content
-            raise ValueError(
-                f"Failed to parse LLM response as JSON: {str(e)}\n"
-                f"Response content (first 500 chars): {content_preview}"
-            )
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to find JSON object in content
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError:
+                pass
+        
+        # If all parsing fails, return empty spans (graceful degradation)
+        print(f"[WARNING] Failed to parse JSON, returning empty spans. Content preview: {content[:200]}")
+        return {"spans": {}}
     
     def _create_spans_level_tags(self, spans_data: Dict[str, Any], response_text: str) -> SpansLevelTags:
         """Create SpansLevelTags object from parsed data with configurable validation."""
