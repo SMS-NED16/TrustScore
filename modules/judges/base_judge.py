@@ -151,8 +151,10 @@ Please analyze this error span for severity."""
         
         # Fallback: Parse structured markdown format
         try:
+            print(f"[INFO] Falling back to markdown parsing (JSON extraction failed)")
             return self._parse_markdown_response(content)
-        except Exception:
+        except Exception as e:
+            print(f"[WARNING] Markdown parsing also failed: {str(e)}")
             pass
         
         # If all parsing fails, raise error
@@ -249,6 +251,33 @@ Please analyze this error span for severity."""
         for indicator in required_indicators:
             if indicator not in result["indicators"]:
                 result["indicators"][indicator] = 0.5  # Default value
+        
+        # Compute severity_score from indicators if not explicitly provided (still 0.0)
+        if result["severity_score"] == 0.0 and result["indicators"]:
+            weights = result.get("weights", {
+                "centrality": 1.0,
+                "domain_sensitivity": 1.0,
+                "harm_potential": 1.0,
+                "instruction_criticality": 1.0
+            })
+            
+            # Compute weighted sum of indicators as severity score
+            # This matches the typical formula: weighted sum of indicators
+            severity_score = (
+                result["indicators"].get("centrality", 0) * weights.get("centrality", 1.0) +
+                result["indicators"].get("domain_sensitivity", 0) * weights.get("domain_sensitivity", 1.0) +
+                result["indicators"].get("harm_potential", 0) * weights.get("harm_potential", 1.0) +
+                result["indicators"].get("instruction_criticality", 0) * weights.get("instruction_criticality", 1.0)
+            )
+            
+            # Only update if we actually computed a non-zero value (indicators were found)
+            # If severity_score was explicitly set to 0.0, we might want to keep it, but
+            # if it's the default and we have indicators, compute it
+            if severity_score > 0:
+                print(f"[INFO] Computed severity_score={severity_score:.3f} from indicators (not explicitly provided in markdown response)")
+                result["severity_score"] = severity_score
+            else:
+                print(f"[WARNING] Severity score remains 0.0 - computed value from indicators was also 0 (indicators may all be 0)")
         
         return result
     
