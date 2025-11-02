@@ -280,39 +280,53 @@ if __name__ == "__main__":
             
             for k in range(0, K_MAX + 1):
                 try:
-                    print(f"  Creating {error_type}_{subtype}_k{k} dataset...")
-                    
-                    if k == 0:
-                        # k=0: Use original responses (no errors)
-                        k_samples = []
-                        for sample in samples:
-                            k_sample = sample.copy()
-                            k_sample["error_type_injected"] = error_type
-                            k_sample["error_subtype_injected"] = subtype
-                            k_sample["k_errors_injected"] = 0
-                            k_sample["original_response"] = sample["response"]
-                            k_sample["change_descriptions"] = ["No errors injected (k=0)"]
-                            k_samples.append(k_sample)
-                        datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
-                    else:
-                        # k>0: Inject k errors iteratively
-                        k_samples = injector.create_k_error_dataset(
-                            samples=samples,
-                            error_type=error_type,
-                            subtype=subtype,
-                            k=k
-                        )
-                        datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
-                    
-                    # Save dataset
                     dataset_path = os.path.join(output_dir, f"{error_type}_{subtype}_k{k}_perturbed.jsonl")
-                    save_samples(k_samples, dataset_path)
-                    save_to_drive(dataset_path)
                     
-                    print(f"  ✓ Saved {len(k_samples)} samples to {dataset_path}")
+                    # Check if dataset already exists
+                    if os.path.exists(dataset_path):
+                        print(f"  Loading existing {error_type}_{subtype}_k{k} dataset from {dataset_path}...")
+                        # Load existing dataset
+                        k_samples = []
+                        with open(dataset_path, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line:
+                                    k_samples.append(json.loads(line))
+                        datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
+                        print(f"  ✓ Loaded {len(k_samples)} samples from existing dataset")
+                    else:
+                        print(f"  Creating {error_type}_{subtype}_k{k} dataset...")
+                        
+                        if k == 0:
+                            # k=0: Use original responses (no errors)
+                            k_samples = []
+                            for sample in samples:
+                                k_sample = sample.copy()
+                                k_sample["error_type_injected"] = error_type
+                                k_sample["error_subtype_injected"] = subtype
+                                k_sample["k_errors_injected"] = 0
+                                k_sample["original_response"] = sample["response"]
+                                k_sample["change_descriptions"] = ["No errors injected (k=0)"]
+                                k_samples.append(k_sample)
+                            datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
+                        else:
+                            # k>0: Inject k errors iteratively
+                            k_samples = injector.create_k_error_dataset(
+                                samples=samples,
+                                error_type=error_type,
+                                subtype=subtype,
+                                k=k
+                            )
+                            datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
+                        
+                        # Save dataset
+                        save_samples(k_samples, dataset_path)
+                        save_to_drive(dataset_path)
+                        
+                        print(f"  ✓ Saved {len(k_samples)} samples to {dataset_path}")
                     
                 except Exception as e:
-                    print(f"  ✗ Error creating {error_type}_{subtype}_k{k}: {str(e)}")
+                    print(f"  ✗ Error loading/creating {error_type}_{subtype}_k{k}: {str(e)}")
                     import traceback
                     traceback.print_exc()
 
@@ -341,24 +355,29 @@ if __name__ == "__main__":
                     continue
                 
                 try:
-                    print(f"\nProcessing {key} ({len(dataset)} samples)...")
-                    
-                    # Run TrustScore inference
                     result_path = os.path.join(output_dir, f"{error_type}_{subtype}_k{k}_results.jsonl")
                     
-                    run_sensitivity_inference(
-                        samples=dataset,
-                        output_path=result_path,
-                        error_type=error_type,
-                        subtype=subtype,
-                        k=k,
-                        config=config
-                    )
-                    
-                    results_by_key[key] = result_path
-                    save_to_drive(result_path)
-                    
-                    print(f"✓ Inference complete for {key}")
+                    # Check if results already exist
+                    if os.path.exists(result_path):
+                        print(f"  Skipping {key} - results already exist at {result_path}")
+                        results_by_key[key] = result_path
+                    else:
+                        print(f"\nProcessing {key} ({len(dataset)} samples)...")
+                        
+                        # Run TrustScore inference
+                        run_sensitivity_inference(
+                            samples=dataset,
+                            output_path=result_path,
+                            error_type=error_type,
+                            subtype=subtype,
+                            k=k,
+                            config=config
+                        )
+                        
+                        results_by_key[key] = result_path
+                        save_to_drive(result_path)
+                        
+                        print(f"✓ Inference complete for {key}")
                     
                 except Exception as e:
                     print(f"✗ Error running inference for {key}: {str(e)}")
