@@ -50,9 +50,17 @@ class SpanTagger:
 
 Response: {llm_record.llm_response}
 
-Please analyze this response for errors and return the JSON format specified in the system prompt.
+Please analyze this response for MEANINGFUL errors that impact the response's quality, accuracy, fairness, or clarity in the context of the given instruction.
 
-Remember: Each error span MUST include a clear, detailed explanation explaining what's wrong and why it's problematic. The explanation field is mandatory for every error you identify."""
+Key considerations:
+- Focus on errors that MATTER: factual errors, hallucinations, inconsistencies, bias, missing context, unclear explanations
+- DO NOT flag minor formatting issues (e.g., lowercase proper nouns in lowercased text) unless they obscure meaning
+- Consider the instruction: Does the error prevent the response from fulfilling its purpose?
+- For summarization tasks: Prioritize factual accuracy, completeness, and clarity over formatting
+
+Return the JSON format specified in the system prompt.
+
+Remember: Each error span MUST include a clear, detailed explanation explaining what's wrong, why it's problematic, and how it impacts the response quality relative to the instruction."""
 
         try:
             messages = self.llm_provider.format_messages(self.system_prompt, user_prompt)
@@ -127,14 +135,26 @@ Remember: Each error span MUST include a clear, detailed explanation explaining 
         """Create SpansLevelTags object from parsed data with configurable validation."""
         spans_level_tags: SpansLevelTags = SpansLevelTags()
         
-        if "spans" not in spans_data:
+        # Handle both formats: {"spans": {...}} or just {...} (the spans dict directly)
+        if "spans" in spans_data:
+            # Format: {"spans": {"0": {...}, "1": {...}}}
+            spans_dict = spans_data["spans"]
+        elif isinstance(spans_data, dict) and all(isinstance(k, str) for k in spans_data.keys()):
+            # Format: {"0": {...}, "1": {...}} - already the spans dict
+            # Check if it looks like a spans dict (has span-like structure with start/end/type)
+            first_value = next(iter(spans_data.values())) if spans_data else {}
+            if isinstance(first_value, dict) and "start" in first_value and "end" in first_value:
+                spans_dict = spans_data
+            else:
+                return spans_level_tags
+        else:
             return spans_level_tags
         
         # Get span processing configuration
         span_config = self.config.span_processing if hasattr(self.config, 'span_processing') else None
         
         span_count = 0
-        for span_id, span_info in spans_data["spans"].items():
+        for span_id, span_info in spans_dict.items():
             try:
                 # Check max spans limit
                 if span_config and span_count >= span_config.max_spans_per_response:
