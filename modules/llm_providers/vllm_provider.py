@@ -82,13 +82,17 @@ class VLLMProvider(BaseLLMProvider):
         sampling_params = self.sampling_params
         if kwargs:
             temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
-            # Use provided seed, or set to 42 for temp=0 (deterministic), None for temp>0 (random)
-            seed = kwargs.get('seed', 42 if temp == 0.0 else None)
+            # Use provided seed if explicitly given, otherwise set default based on temperature
+            # For temp=0: use deterministic seed (42), for temp>0: use None unless explicitly provided
+            if 'seed' in kwargs:
+                seed = kwargs.get('seed')  # Use provided seed (can be None or a number for reproducible randomness)
+            else:
+                seed = 42 if temp == 0.0 else None  # Default: deterministic for temp=0, random for temp>0
             sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
                 top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
-                seed=seed,  # Pass seed parameter for reproducibility (when temp=0) or randomness (when temp>0)
+                seed=seed,  # Pass seed parameter - can be a number for reproducible randomness or None for full randomness
             )
         
         # Generate response
@@ -110,13 +114,17 @@ class VLLMProvider(BaseLLMProvider):
         sampling_params = self.sampling_params
         if kwargs:
             temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
-            # Use provided seed, or set to 42 for temp=0 (deterministic), None for temp>0 (random)
-            seed = kwargs.get('seed', 42 if temp == 0.0 else None)
+            # Use provided seed if explicitly given, otherwise set default based on temperature
+            # For temp=0: use deterministic seed (42), for temp>0: use None unless explicitly provided
+            if 'seed' in kwargs:
+                seed = kwargs.get('seed')  # Use provided seed (can be None or a number for reproducible randomness)
+            else:
+                seed = 42 if temp == 0.0 else None  # Default: deterministic for temp=0, random for temp>0
             sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
                 top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
-                seed=seed,  # Pass seed parameter for reproducibility (when temp=0) or randomness (when temp>0)
+                seed=seed,  # Pass seed parameter - can be a number for reproducible randomness or None for full randomness
             )
         
         # Batch generate
