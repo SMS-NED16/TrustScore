@@ -241,10 +241,13 @@ class TrustScorePipeline:
             for judge_idx, (judge_name, judge) in enumerate(aspect_judges.items()):
                 print(f"[DEBUG Judge Calls] Calling judge '{judge_name}' for span {span_id} (type={span.type.value})")
                 try:
-                    # Don't pass seeds to judges - let them use natural randomness for variability
+                    # Use random seeds for judges to ensure variability
+                    # Generate a random seed for this specific judge/span call
                     # This ensures different judges produce different outputs even with the same model
                     # Seed control is only used for span tagger (temperature=0.0) for reproducibility
-                    analysis = judge.analyze_span(llm_record, span, seed=None)
+                    import random as rng
+                    judge_seed = rng.randint(1, 2**31 - 1)  # Random seed in valid range
+                    analysis = judge.analyze_span(llm_record, span, seed=judge_seed)
                     
                     # LOG: Successful judge call with details
                     print(f"[DEBUG Judge Calls] ✓ Judge '{judge_name}' succeeded for span {span_id}: "

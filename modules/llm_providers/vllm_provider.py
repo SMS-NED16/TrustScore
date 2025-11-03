@@ -82,17 +82,21 @@ class VLLMProvider(BaseLLMProvider):
         sampling_params = self.sampling_params
         if kwargs:
             temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
-            # Use provided seed if explicitly given, otherwise set default based on temperature
-            # For temp=0: use deterministic seed (42), for temp>0: use None unless explicitly provided
-            if 'seed' in kwargs:
-                seed = kwargs.get('seed')  # Use provided seed (can be None or a number for reproducible randomness)
+            # For temperature > 0: use provided seed (random for variability) or None for natural randomness
+            # For temperature = 0: use seed 42 for deterministic results (span tagger)
+            # This ensures judges produce different outputs even with the same model when using random seeds
+            if temp > 0:
+                # For judges: use provided seed (which is random) or None for natural randomness
+                seed = kwargs.get('seed', None)  # Use provided seed (can be random) or None
+            elif 'seed' in kwargs:
+                seed = kwargs.get('seed')  # Allow explicit seed for temp=0 (span tagger)
             else:
-                seed = 42 if temp == 0.0 else None  # Default: deterministic for temp=0, random for temp>0
+                seed = 42  # Default deterministic seed for temp=0
             sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
                 top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
-                seed=seed,  # Pass seed parameter - can be a number for reproducible randomness or None for full randomness
+                seed=seed,  # Random seed for temp>0 (variability), deterministic seed for temp=0
             )
         
         # Generate response
@@ -114,17 +118,21 @@ class VLLMProvider(BaseLLMProvider):
         sampling_params = self.sampling_params
         if kwargs:
             temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
-            # Use provided seed if explicitly given, otherwise set default based on temperature
-            # For temp=0: use deterministic seed (42), for temp>0: use None unless explicitly provided
-            if 'seed' in kwargs:
-                seed = kwargs.get('seed')  # Use provided seed (can be None or a number for reproducible randomness)
+            # For temperature > 0: use provided seed (random for variability) or None for natural randomness
+            # For temperature = 0: use seed 42 for deterministic results (span tagger)
+            # This ensures judges produce different outputs even with the same model when using random seeds
+            if temp > 0:
+                # For judges: use provided seed (which is random) or None for natural randomness
+                seed = kwargs.get('seed', None)  # Use provided seed (can be random) or None
+            elif 'seed' in kwargs:
+                seed = kwargs.get('seed')  # Allow explicit seed for temp=0 (span tagger)
             else:
-                seed = 42 if temp == 0.0 else None  # Default: deterministic for temp=0, random for temp>0
+                seed = 42  # Default deterministic seed for temp=0
             sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
                 top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
-                seed=seed,  # Pass seed parameter - can be a number for reproducible randomness or None for full randomness
+                seed=seed,  # Random seed for temp>0 (variability), deterministic seed for temp=0
             )
         
         # Batch generate

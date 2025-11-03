@@ -276,13 +276,17 @@ def run_ci_calibration_analysis(
     Returns:
         Path to results directory
     """
-    # Set random seeds for reproducibility
+    # Set random seeds for reproducibility (sample selection, etc.)
+    # Note: We do NOT set cudnn.deterministic=True to allow natural randomness for judges
+    # The span tagger uses temperature=0.0 with seed=42 for determinism
+    # Judges use temperature=0.7 with random seeds for variability
     random.seed(random_seed)
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(random_seed)
-        torch.backends.cudnn.deterministic = True
+        # DO NOT set cudnn.deterministic = True - this would force all operations to be deterministic
+        # and prevent natural randomness in judge outputs
         torch.backends.cudnn.benchmark = False
     
     # Create output directory with timestamp
