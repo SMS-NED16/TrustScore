@@ -235,37 +235,37 @@ The analysis ensures reproducibility and controlled variability through:
    - VLLM seed set to 42 when temperature=0
    - Ensures same spans are detected across all repeats
 
-3. **Ensemble of Different Models**:
+3. **Ensemble of Same Model with Natural Randomness**:
    - **1 judge**: LLaMA 3.1 8B only
-   - **3 judges**: LLaMA 3.1 8B, Mistral 7B, Qwen 7B (different models for epistemic uncertainty)
-   - **5 judges**: 2× LLaMA, 2× Mistral, 1× Qwen (hybrid ensemble)
+   - **3 judges**: 3× LLaMA 3.1 8B (same model, natural randomness)
+   - **5 judges**: 5× LLaMA 3.1 8B (same model, natural randomness)
    - All judges use temperature 0.7 for stochastic variability
-   - **Deterministic seeds**: Each run uses a deterministic seed based on (random_seed, sample_idx, num_judges, repeat)
-   - Seeds ensure reproducible variability: same configuration produces same results across runs
-   - Each repeat produces different judge scores/confidences due to seeded randomness
-   - Different models capture true epistemic uncertainty (model disagreement)
+   - **Natural randomness**: Judges use no seeds - VLLM's natural randomness ensures variability
+   - Each repeat produces different judge scores/confidences due to natural randomness
+   - Same spans detected across repeats (deterministic span tagger with temperature=0.0)
+   - Different judge outputs across repeats (natural randomness with temperature=0.7)
 
 4. **PyTorch Determinism**:
    - `torch.backends.cudnn.deterministic = True`
    - `torch.backends.cudnn.benchmark = False`
    - All CUDA operations are deterministic
 
-## Seed Generation Strategy
+## Variability Strategy
 
-Judges use deterministic seeds for reproducible randomness:
-- **Base seed formula**: `base_seed = random_seed * 1000000 + sample_idx * 10000 + num_judges * 1000 + repeat * 100`
-- **Judge-specific seed**: `judge_seed = base_seed + span_hash + judge_idx`
-  - Ensures each judge gets a unique seed for each span
-  - Same (sample_idx, num_judges, repeat, judge_idx, span) → same seed → same output
+Judges use natural randomness for variability:
+- **Span Tagger**: Temperature=0.0 with seed=42 (deterministic) → same spans across repeats
+- **Judges**: Temperature=0.7 with seed=None (natural randomness) → different outputs across repeats
 - **Benefits**:
-  - Fully reproducible across runs (same configuration → same results)
-  - Variability across different runs (different seeds for different configurations)
-  - Temperature=0.7 still introduces randomness, but seeded randomness
+  - Same spans detected across repeats (deterministic span tagger)
+  - Different judge scores/confidences across repeats (natural randomness)
+  - Captures aleatoric uncertainty through stochastic sampling
+  - Note: Results are not fully reproducible across runs (trades reproducibility for variability)
 
 ## Notes
 
 - Span tagger uses temperature 0.0 with seed=42 to ensure consistent span detection across repeats
-- Judges use temperature 0.7 with deterministic seeds (generated per run) to introduce reproducible variability in scoring
+- Judges use temperature 0.7 with no seeds (natural randomness) to introduce variability in scoring
+- This approach trades reproducibility for variability to ensure judges produce different outputs
 - Only T (trustworthiness) judges are enabled; E and B judges are disabled
 - All CIs are analyzed in their respective spaces (severity vs probability)
 - With only T errors, final TrustScore CIs should equal T category CIs (sanity check)

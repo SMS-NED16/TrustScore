@@ -241,18 +241,10 @@ class TrustScorePipeline:
             for judge_idx, (judge_name, judge) in enumerate(aspect_judges.items()):
                 print(f"[DEBUG Judge Calls] Calling judge '{judge_name}' for span {span_id} (type={span.type.value})")
                 try:
-                    # Generate deterministic seed for this judge if base seed is provided
-                    judge_seed = None
-                    if generation_seed is not None:
-                        # Create unique seed: base_seed + span_id hash + judge_idx
-                        # Use a simple hash of span_id for uniqueness
-                        span_hash = hash(span_id) % 10000  # Limit to reasonable range
-                        judge_seed = generation_seed + span_hash + judge_idx
-                        print(f"[DEBUG Seed] Judge '{judge_name}' for span {span_id}: base_seed={generation_seed}, span_hash={span_hash}, judge_idx={judge_idx}, final_seed={judge_seed}")
-                    else:
-                        print(f"[DEBUG Seed] Judge '{judge_name}' for span {span_id}: No seed provided (using natural randomness)")
-                    
-                    analysis = judge.analyze_span(llm_record, span, seed=judge_seed)
+                    # Don't pass seeds to judges - let them use natural randomness for variability
+                    # This ensures different judges produce different outputs even with the same model
+                    # Seed control is only used for span tagger (temperature=0.0) for reproducibility
+                    analysis = judge.analyze_span(llm_record, span, seed=None)
                     
                     # LOG: Successful judge call with details
                     print(f"[DEBUG Judge Calls] ✓ Judge '{judge_name}' succeeded for span {span_id}: "

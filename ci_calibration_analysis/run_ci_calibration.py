@@ -395,18 +395,19 @@ def run_ci_calibration_analysis(
                         run_id = f"run_{run_counter}::judges_{num_judges}::repeat_{repeat}::sample_{sample_idx}::{sample.get('unique_dataset_id', 'unknown')}"
                         
                         try:
-                            # Generate deterministic seed for this run
-                            # Formula: random_seed * 1000000 + sample_idx * 10000 + num_judges * 1000 + repeat * 100
-                            # This ensures unique seeds for each (sample_idx, num_judges, repeat) combination
-                            base_seed = random_seed * 1000000 + sample_idx * 10000 + num_judges * 1000 + repeat * 100
+                            # Note: Judges use natural randomness (no seeds) for variability
+                            # Span tagger uses temperature=0.0 with seed=42 for deterministic results
+                            # This ensures:
+                            # - Same spans detected across repeats (deterministic span tagger)
+                            # - Different judge outputs across repeats (natural randomness with temperature=0.7)
                             
-                            # Run pipeline with deterministic seed
+                            # Run pipeline (generation_seed only affects span tagger if needed)
                             result = pipeline.process(
                                 prompt=sample["prompt"],
                                 response=sample["response"],
                                 model=sample.get("model", "unknown"),
                                 generated_on=datetime.now(),
-                                generation_seed=base_seed
+                                generation_seed=None  # Judges use natural randomness
                             )
                             
                             # Format and save result
