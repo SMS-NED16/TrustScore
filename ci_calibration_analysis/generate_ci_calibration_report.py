@@ -249,8 +249,8 @@ def generate_ci_calibration_report(
         # Extract span-level CIs
         span_level_ci = result.get("span_level_ci", [])
         for span_ci_data in span_level_ci:
-            span_analyses["span_severity"]["by_item_judge"][key] = span_grouped[key]
-            span_analyses["span_confidence"]["by_item_judge"][key] = span_grouped[key]
+            # Don't store with 3-tuple keys here - aggregation happens later with proper 2-tuple keys
+            # The span_grouped dict will be used to create properly keyed entries in the analysis section
             
             if span_ci_data.get("severity_score_ci"):
                 span_grouped[key]["span_severity_cis"].append(span_ci_data["severity_score_ci"])
@@ -338,10 +338,13 @@ def generate_ci_calibration_report(
                 judge_data["mean_observed_std"] = float(np.mean(judge_data["observed_stds"]))
                 
                 # Compute overall coverage
+                # Only include keys that have the expected structure (string keys with proper fields)
                 all_coverage = [
                     span_analyses[span_type]["by_item_judge"][key]["coverage"]
                     for key in span_analyses[span_type]["by_item_judge"]
-                    if span_analyses[span_type]["by_item_judge"][key]["num_judges"] == judge_count
+                    if (isinstance(key, str) and  # Only process string keys (not 3-tuple keys from old code)
+                        "coverage" in span_analyses[span_type]["by_item_judge"][key] and
+                        span_analyses[span_type]["by_item_judge"][key].get("num_judges") == judge_count)
                 ]
                 if len(all_coverage) > 0:
                     judge_data["mean_coverage"] = float(np.mean(all_coverage))
