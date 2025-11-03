@@ -54,10 +54,13 @@ class VLLMProvider(BaseLLMProvider):
             # Configure sampling parameters
             # Use temperature 0.0 for deterministic results if specified
             temp = self.config.temperature if hasattr(self.config, 'temperature') else 0.0
+            # Set seed for deterministic generation when temperature=0, None when temperature>0 for randomness
+            seed = 42 if temp == 0.0 else None
             self.sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000,
                 top_p=0.95 if temp > 0 else 1.0,  # top_p=1.0 when temperature=0
+                seed=seed,  # Deterministic seed for temperature=0, None for temperature>0
             )
             
             print(f"[Info] vLLM model loaded successfully: {model_name}")
@@ -79,10 +82,13 @@ class VLLMProvider(BaseLLMProvider):
         sampling_params = self.sampling_params
         if kwargs:
             temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
+            # Use provided seed, or set to 42 for temp=0 (deterministic), None for temp>0 (random)
+            seed = kwargs.get('seed', 42 if temp == 0.0 else None)
             sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
                 top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
+                seed=seed,  # Pass seed parameter for reproducibility (when temp=0) or randomness (when temp>0)
             )
         
         # Generate response
@@ -104,10 +110,13 @@ class VLLMProvider(BaseLLMProvider):
         sampling_params = self.sampling_params
         if kwargs:
             temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
+            # Use provided seed, or set to 42 for temp=0 (deterministic), None for temp>0 (random)
+            seed = kwargs.get('seed', 42 if temp == 0.0 else None)
             sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
                 top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
+                seed=seed,  # Pass seed parameter for reproducibility (when temp=0) or randomness (when temp>0)
             )
         
         # Batch generate

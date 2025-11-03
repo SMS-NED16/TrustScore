@@ -12,6 +12,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from tqdm import tqdm
 import random
+import torch
+import numpy as np
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -261,8 +263,14 @@ def run_ci_calibration_analysis(
     Returns:
         Path to results directory
     """
-    # Set random seed
+    # Set random seeds for reproducibility
     random.seed(random_seed)
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(random_seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     
     # Create output directory with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -293,7 +301,11 @@ def run_ci_calibration_analysis(
         all_samples = load_summeval_with_sources(summeval_path, max_samples=None)
         print(f"Loaded {len(all_samples)} samples")
         
-        # Select random subset
+        # Sort samples by unique_dataset_id for deterministic order
+        all_samples.sort(key=lambda x: x.get("unique_dataset_id", ""))
+        print("Sorted samples by unique_dataset_id for reproducibility")
+        
+        # Select random subset (now deterministic due to sorted order)
         selected_samples = random.sample(all_samples, min(num_examples, len(all_samples)))
         print(f"Selected {len(selected_samples)} samples for analysis")
         

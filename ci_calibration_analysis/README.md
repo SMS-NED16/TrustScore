@@ -43,7 +43,36 @@ The analysis checks CIs at multiple levels:
 
 ## Usage
 
-### Running the Analysis
+### Running in Google Colab
+
+```python
+# In a Google Colab notebook cell:
+
+# 1. Install dependencies
+!pip install vllm transformers datasets tqdm
+
+# 2. Set HuggingFace token (if needed)
+import os
+os.environ["HF_TOKEN"] = "your_hf_token_here"  # Optional
+
+# 3. Mount Google Drive (if not already mounted)
+from google.colab import drive
+drive.mount('/content/drive')
+
+# 4. Run the analysis
+from ci_calibration_analysis.run_ci_calibration import run_ci_calibration_analysis
+
+output_dir = run_ci_calibration_analysis(
+    summeval_path="datasets/raw/summeval/model_annotations.aligned.jsonl",
+    output_dir="results",
+    num_examples=5,
+    judge_counts=[1, 3, 5],
+    num_repeats=5,
+    random_seed=42
+)
+```
+
+### Running Locally
 
 ```python
 from ci_calibration_analysis.run_ci_calibration import run_ci_calibration_analysis
@@ -189,10 +218,34 @@ The pipeline handles errors gracefully:
 - Analysis continues even if some runs fail
 - Report generation skips error records automatically
 
+## Reproducibility
+
+The analysis ensures reproducibility and controlled variability through:
+
+1. **Deterministic Sample Selection**:
+   - Samples are sorted by `unique_dataset_id` before random selection
+   - Random seed (default: 42) ensures same samples are selected across runs
+   - All random seeds (Python, NumPy, PyTorch) are set consistently
+
+2. **Deterministic Span Tagger**:
+   - Temperature set to 0.0 for deterministic generation
+   - VLLM seed set to 42 when temperature=0
+   - Ensures same spans are detected across all repeats
+
+3. **Variable Judge Outputs**:
+   - Temperature set to 0.7 for stochastic generation
+   - VLLM seed set to `None` when temperature>0 (allows natural randomness)
+   - Each repeat produces different judge scores/confidences
+
+4. **PyTorch Determinism**:
+   - `torch.backends.cudnn.deterministic = True`
+   - `torch.backends.cudnn.benchmark = False`
+   - All CUDA operations are deterministic
+
 ## Notes
 
-- Span tagger uses temperature 0.0 to ensure consistent span detection across repeats
-- Judges use temperature 0.7 to introduce variability in scoring
+- Span tagger uses temperature 0.0 with seed=42 to ensure consistent span detection across repeats
+- Judges use temperature 0.7 with seed=None to introduce variability in scoring
 - Only T (trustworthiness) judges are enabled; E and B judges are disabled
 - All CIs are analyzed in their respective spaces (severity vs probability)
 - With only T errors, final TrustScore CIs should equal T category CIs (sanity check)
