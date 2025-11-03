@@ -390,12 +390,18 @@ def run_ci_calibration_analysis(
                         run_id = f"run_{run_counter}::judges_{num_judges}::repeat_{repeat}::sample_{sample_idx}::{sample.get('unique_dataset_id', 'unknown')}"
                         
                         try:
-                            # Run pipeline
+                            # Generate deterministic seed for this run
+                            # Formula: random_seed * 1000000 + sample_idx * 10000 + num_judges * 1000 + repeat * 100
+                            # This ensures unique seeds for each (sample_idx, num_judges, repeat) combination
+                            base_seed = random_seed * 1000000 + sample_idx * 10000 + num_judges * 1000 + repeat * 100
+                            
+                            # Run pipeline with deterministic seed
                             result = pipeline.process(
                                 prompt=sample["prompt"],
                                 response=sample["response"],
                                 model=sample.get("model", "unknown"),
-                                generated_on=datetime.now()
+                                generated_on=datetime.now(),
+                                generation_seed=base_seed
                             )
                             
                             # Format and save result

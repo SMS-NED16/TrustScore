@@ -79,7 +79,7 @@ class TrustScorePipeline:
         self.aggregator: Aggregator = Aggregator(self.config)
     
     def process(self, prompt: str, response: str, model: str = "unknown", 
-               generated_on: Optional[datetime] = None) -> AggregatedOutput:
+               generated_on: Optional[datetime] = None, generation_seed: Optional[int] = None) -> AggregatedOutput:
         """
         Process a single LLM prompt/response pair through the pipeline.
         
@@ -88,6 +88,9 @@ class TrustScorePipeline:
             response: LLM's response
             model: Model name/identifier
             generated_on: When the response was generated
+            generation_seed: Optional base seed for deterministic generation. 
+                           Individual judge seeds will be derived from this.
+                           If None, uses natural randomness.
             
         Returns:
             AggregatedOutput: Final TrustScore analysis
@@ -111,7 +114,7 @@ class TrustScorePipeline:
         
         # Step 3: Grade spans with judges
         print(f"[Pipeline Step 3/4] Span Grading: Analyzing {len(spans_tags.spans)} span(s) with judges...")
-        graded_spans: GradedSpans = self._grade_spans(llm_record, spans_tags)
+        graded_spans: GradedSpans = self._grade_spans(llm_record, spans_tags, generation_seed=generation_seed)
         print(f"[Pipeline Step 3/4] Span Grading Complete: Successfully graded {len(graded_spans.spans)} span(s)")
         
         # Step 4: Aggregate scores
@@ -172,13 +175,17 @@ class TrustScorePipeline:
             model_metadata=metadata
         )
     
-    def _grade_spans(self, llm_record: LLMRecord, spans_tags: SpansLevelTags) -> GradedSpans:
+    def _grade_spans(self, llm_record: LLMRecord, spans_tags: SpansLevelTags, 
+                     generation_seed: Optional[int] = None) -> GradedSpans:
         """
         Grade spans using ensemble of judges for each aspect with configurable error handling.
         
         Args:
             llm_record: The original LLM input/output pair
             spans_tags: Collection of identified error spans
+            generation_seed: Optional base seed for deterministic generation.
+                           Individual judge seeds will be derived from this.
+                           If None, uses natural randomness.
             
         Returns:
             GradedSpans: Collection of graded spans with ensemble analyses
@@ -231,10 +238,18 @@ class TrustScorePipeline:
             successful_analyses = 0
             
             # Get analyses from all judges for this aspect
-            for judge_name, judge in aspect_judges.items():
+            for judge_idx, (judge_name, judge) in enumerate(aspect_judges.items()):
                 print(f"[DEBUG Judge Calls] Calling judge '{judge_name}' for span {span_id} (type={span.type.value})")
                 try:
-                    analysis = judge.analyze_span(llm_record, span)
+                    # Generate deterministic seed for this judge if base seed is provided
+                    judge_seed = None
+                    if generation_seed is not None:
+                        # Create unique seed: base_seed + span_id hash + judge_idx
+                        # Use a simple hash of span_id for uniqueness
+                        span_hash = hash(span_id) % 10000  # Limit to reasonable range
+                        judge_seed = generation_seed + span_hash + judge_idx
+                    
+                    analysis = judge.analyze_span(llm_record, span, seed=judge_seed)
                     
                     # LOG: Successful judge call with details
                     print(f"[DEBUG Judge Calls] ✓ Judge '{judge_name}' succeeded for span {span_id}: "

@@ -240,7 +240,9 @@ The analysis ensures reproducibility and controlled variability through:
    - **3 judges**: LLaMA 3.1 8B, Mistral 7B, Qwen 7B (different models for epistemic uncertainty)
    - **5 judges**: 2× LLaMA, 2× Mistral, 1× Qwen (hybrid ensemble)
    - All judges use temperature 0.7 for stochastic variability
-   - Each repeat produces different judge scores/confidences due to temperature randomness
+   - **Deterministic seeds**: Each run uses a deterministic seed based on (random_seed, sample_idx, num_judges, repeat)
+   - Seeds ensure reproducible variability: same configuration produces same results across runs
+   - Each repeat produces different judge scores/confidences due to seeded randomness
    - Different models capture true epistemic uncertainty (model disagreement)
 
 4. **PyTorch Determinism**:
@@ -248,10 +250,22 @@ The analysis ensures reproducibility and controlled variability through:
    - `torch.backends.cudnn.benchmark = False`
    - All CUDA operations are deterministic
 
+## Seed Generation Strategy
+
+Judges use deterministic seeds for reproducible randomness:
+- **Base seed formula**: `base_seed = random_seed * 1000000 + sample_idx * 10000 + num_judges * 1000 + repeat * 100`
+- **Judge-specific seed**: `judge_seed = base_seed + span_hash + judge_idx`
+  - Ensures each judge gets a unique seed for each span
+  - Same (sample_idx, num_judges, repeat, judge_idx, span) → same seed → same output
+- **Benefits**:
+  - Fully reproducible across runs (same configuration → same results)
+  - Variability across different runs (different seeds for different configurations)
+  - Temperature=0.7 still introduces randomness, but seeded randomness
+
 ## Notes
 
 - Span tagger uses temperature 0.0 with seed=42 to ensure consistent span detection across repeats
-- Judges use temperature 0.7 with seed=None to introduce variability in scoring
+- Judges use temperature 0.7 with deterministic seeds (generated per run) to introduce reproducible variability in scoring
 - Only T (trustworthiness) judges are enabled; E and B judges are disabled
 - All CIs are analyzed in their respective spaces (severity vs probability)
 - With only T errors, final TrustScore CIs should equal T category CIs (sanity check)

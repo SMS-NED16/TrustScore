@@ -26,13 +26,14 @@ class BiasJudge(BaseJudge):
         # Override system prompt for bias focus
         self.system_prompt: str = BIAS_JUDGE_PROMPT
 
-    def analyze_span(self, llm_record: LLMRecord, span: SpanTag) -> 'JudgeAnalysis':
+    def analyze_span(self, llm_record: LLMRecord, span: SpanTag, seed: Optional[int] = None) -> 'JudgeAnalysis':
         """
         Analyze a bias error span.
         
         Args:
             llm_record: The original LLM input/output pair
             span: The bias error span to analyze
+            seed: Optional seed for deterministic generation (if None, uses natural randomness)
             
         Returns:
             JudgeAnalysis: Detailed analysis from this judge
@@ -50,5 +51,5 @@ Error Explanation: {span.explanation}
 
 Please analyze this bias error and provide detailed severity scoring. Consider the specific subtype and its implications for fairness and equity."""
 
-        analysis_data: Dict[str, Any] = self._call_llm(user_prompt)
+        analysis_data: Dict[str, Any] = self._call_llm(user_prompt, seed=seed)
         return self._create_judge_analysis(analysis_data)

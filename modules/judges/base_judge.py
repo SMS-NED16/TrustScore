@@ -36,13 +36,14 @@ class BaseJudge(ABC):
         self.system_prompt: str = BASE_JUDGE_PROMPT
 
     @abstractmethod
-    def analyze_span(self, llm_record: LLMRecord, span: SpanTag) -> JudgeAnalysis:
+    def analyze_span(self, llm_record: LLMRecord, span: SpanTag, seed: Optional[int] = None) -> JudgeAnalysis:
         """
         Analyze a specific span and return judge analysis.
         
         Args:
             llm_record: The original LLM input/output pair
             span: The error span to analyze
+            seed: Optional seed for deterministic generation (if None, uses natural randomness)
             
         Returns:
             JudgeAnalysis: Detailed analysis from this judge
@@ -111,14 +112,27 @@ Error Span:
 
 Please analyze this error span for severity."""
     
-    def _call_llm(self, user_prompt: str) -> Dict[str, Any]:
-        """Make API call to the LLM using configured provider."""
+    def _call_llm(self, user_prompt: str, seed: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Make API call to the LLM using configured provider.
+        
+        Args:
+            user_prompt: The user prompt to send
+            seed: Optional seed for deterministic generation (if None, uses natural randomness)
+            
+        Returns:
+            Parsed response dictionary
+        """
         if not self.llm_provider.is_available():
             raise ValueError(f"LLM provider {self.config.provider} not available")
         
         try:
             messages = self.llm_provider.format_messages(self.system_prompt, user_prompt)
-            content: str = self.llm_provider.generate(messages)
+            # Pass seed to generate if provided
+            if seed is not None:
+                content: str = self.llm_provider.generate(messages, seed=seed)
+            else:
+                content: str = self.llm_provider.generate(messages)
             return self._parse_response(content)
             
         except Exception as e:

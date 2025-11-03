@@ -26,13 +26,14 @@ class TrustworthinessJudge(BaseJudge):
         # Override system prompt for trustworthiness focus
         self.system_prompt: str = TRUSTWORTHINESS_JUDGE_PROMPT
 
-    def analyze_span(self, llm_record: LLMRecord, span: SpanTag) -> JudgeAnalysis:
+    def analyze_span(self, llm_record: LLMRecord, span: SpanTag, seed: Optional[int] = None) -> JudgeAnalysis:
         """
         Analyze a trustworthiness error span.
         
         Args:
             llm_record: The original LLM input/output pair
             span: The trustworthiness error span to analyze
+            seed: Optional seed for deterministic generation (if None, uses natural randomness)
             
         Returns:
             JudgeAnalysis: Detailed analysis from this judge
@@ -50,7 +51,7 @@ Error Explanation: {span.explanation}
 
 Please analyze this trustworthiness error and provide detailed severity scoring. Consider the specific subtype and its implications for factual accuracy and reliability."""
 
-        analysis_data: Dict[str, Any] = self._call_llm(user_prompt)
+        analysis_data: Dict[str, Any] = self._call_llm(user_prompt, seed=seed)
         return self._create_judge_analysis(analysis_data)
     
     def _get_subtype_severity_multiplier(self, subtype: str) -> float:
