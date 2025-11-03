@@ -15,6 +15,9 @@ The CI calibration analysis tests:
 1. **Sample Selection**: Selects 3-5 summarization examples from SummEval (each example = 1 article + model-generated summary)
 2. **Configuration**: Runs TrustScore pipeline for each example with:
    - Number of trustworthiness judges: J ∈ {1, 3, 5}
+     - **1 judge**: LLaMA 3.1 8B
+     - **3 judges**: LLaMA 3.1 8B, Mistral 7B, Qwen 7B
+     - **5 judges**: 2× LLaMA 3.1 8B, 2× Mistral 7B, 1× Qwen 7B
    - Number of bias judges: 0
    - Number of explainability judges: 0
    - Span tagger temperature: 0.0 (deterministic for consistent spans)
@@ -232,10 +235,13 @@ The analysis ensures reproducibility and controlled variability through:
    - VLLM seed set to 42 when temperature=0
    - Ensures same spans are detected across all repeats
 
-3. **Variable Judge Outputs**:
-   - Temperature set to 0.7 for stochastic generation
-   - VLLM seed set to `None` when temperature>0 (allows natural randomness)
-   - Each repeat produces different judge scores/confidences
+3. **Ensemble of Different Models**:
+   - **1 judge**: LLaMA 3.1 8B only
+   - **3 judges**: LLaMA 3.1 8B, Mistral 7B, Qwen 7B (different models for epistemic uncertainty)
+   - **5 judges**: 2× LLaMA, 2× Mistral, 1× Qwen (hybrid ensemble)
+   - All judges use temperature 0.7 for stochastic variability
+   - Each repeat produces different judge scores/confidences due to temperature randomness
+   - Different models capture true epistemic uncertainty (model disagreement)
 
 4. **PyTorch Determinism**:
    - `torch.backends.cudnn.deterministic = True`

@@ -34,6 +34,8 @@ CONFIDENCE_LEVEL = 0.95  # 95% CI
 
 # Model configuration
 VLLM_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+MISTRAL_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+QWEN_MODEL = "Qwen/Qwen2-7B-Instruct"
 MAX_TOKENS = 2000
 DEVICE = "cuda"
 
@@ -87,6 +89,10 @@ def save_to_drive(local_path: str, drive_path: Optional[str] = None):
 def create_config_for_judge_count(num_judges: int) -> TrustScoreConfig:
     """
     Create TrustScoreConfig with specified number of trustworthiness judges.
+    Uses different models based on judge count:
+    - 1 judge: LLaMA 3.1 8B
+    - 3 judges: LLaMA 3.1 8B, Mistral 7B, Qwen 7B
+    - 5 judges: 2 LLaMAs, 2 Mistrals, 1 Qwen
     
     Args:
         num_judges: Number of trustworthiness judges (1, 3, or 5)
@@ -105,15 +111,32 @@ def create_config_for_judge_count(num_judges: int) -> TrustScoreConfig:
         torch_dtype="float16"
     )
     
-    # Judge Configs with VLLM
-    # Create N trustworthiness judges with temperature = 0.7
+    # Judge Configs with VLLM - Use different models based on judge count
     judge_configs = {}
+    
+    # Define model assignment based on judge count
+    if num_judges == 1:
+        # 1 judge: LLaMA 3.1 8B
+        model_list = [VLLM_MODEL]
+    elif num_judges == 3:
+        # 3 judges: LLaMA 3.1 8B, Mistral 7B, Qwen 7B
+        model_list = [VLLM_MODEL, MISTRAL_MODEL, QWEN_MODEL]
+    elif num_judges == 5:
+        # 5 judges: 2 LLaMAs, 2 Mistrals, 1 Qwen
+        model_list = [VLLM_MODEL, VLLM_MODEL, MISTRAL_MODEL, MISTRAL_MODEL, QWEN_MODEL]
+    else:
+        # Fallback: use LLaMA for all judges
+        model_list = [VLLM_MODEL] * num_judges
+        print(f"[Warning] Using default LLaMA model for all {num_judges} judges")
+    
+    # Create judge configs with assigned models
     for i in range(1, num_judges + 1):
+        model = model_list[i - 1]  # 0-indexed
         judge_configs[f"trust_judge_{i}"] = JudgeConfig(
             name=f"trust_judge_{i}",
             enabled=True,
             provider=LLMProvider.VLLM,
-            model=VLLM_MODEL,
+            model=model,
             temperature=JUDGE_TEMPERATURE,
             max_tokens=MAX_TOKENS
         )
@@ -342,6 +365,17 @@ def run_ci_calibration_analysis(
                 
                 for num_judges in judge_counts:
                     print(f"\n--- Config: {num_judges} judge(s) ---")
+                    
+                    # Determine models being used
+                    if num_judges == 1:
+                        models_str = "LLaMA 3.1 8B"
+                    elif num_judges == 3:
+                        models_str = "LLaMA 3.1 8B, Mistral 7B, Qwen 7B"
+                    elif num_judges == 5:
+                        models_str = "2× LLaMA 3.1 8B, 2× Mistral 7B, 1× Qwen 7B"
+                    else:
+                        models_str = f"{num_judges}× LLaMA 3.1 8B"
+                    print(f"  Models: {models_str}")
                     
                     # Create config for this judge count
                     config = create_config_for_judge_count(num_judges)
