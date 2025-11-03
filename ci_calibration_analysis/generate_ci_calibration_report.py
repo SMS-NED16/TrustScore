@@ -139,14 +139,39 @@ def generate_ci_calibration_report(
     # Extract unique configurations
     unique_items = set()
     unique_judge_counts = set()
+    error_count = 0
+    missing_item_id = 0
+    missing_num_judges = 0
+    
     for result in results:
         if "error" in result:
+            error_count += 1
             continue
-        unique_items.add(result.get("item_id", "unknown"))
-        unique_judge_counts.add(result.get("num_judges"))
+        
+        item_id = result.get("item_id")
+        num_judges = result.get("num_judges")
+        
+        if item_id is None:
+            missing_item_id += 1
+            continue
+            
+        if num_judges is None:
+            missing_num_judges += 1
+            continue
+        
+        unique_items.add(item_id)
+        unique_judge_counts.add(num_judges)
     
     metadata["num_unique_items"] = len(unique_items)
-    metadata["judge_counts"] = sorted(list(unique_judge_counts))
+    metadata["judge_counts"] = sorted([x for x in unique_judge_counts if x is not None])
+    
+    # Debug information
+    if error_count > 0:
+        print(f"  ⚠ Warning: {error_count} results had errors and were skipped")
+    if missing_item_id > 0:
+        print(f"  ⚠ Warning: {missing_item_id} results missing 'item_id' field")
+    if missing_num_judges > 0:
+        print(f"  ⚠ Warning: {missing_num_judges} results missing 'num_judges' field")
     
     print(f"\nAnalysis configuration:")
     print(f"  - Number of runs: {metadata['num_runs']}")
