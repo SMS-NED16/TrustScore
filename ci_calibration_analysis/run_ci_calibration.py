@@ -111,23 +111,13 @@ def create_config_for_judge_count(num_judges: int) -> TrustScoreConfig:
         torch_dtype="float16"
     )
     
-    # Judge Configs with VLLM - Use different models based on judge count
+    # Judge Configs with VLLM - Use same model for all judges (VLLM limitation)
+    # NOTE: VLLM can only load one model at a time in a single process
+    # Using the same model with temperature=0.7 provides randomness via different seeds
     judge_configs = {}
     
-    # Define model assignment based on judge count
-    if num_judges == 1:
-        # 1 judge: LLaMA 3.1 8B
-        model_list = [VLLM_MODEL]
-    elif num_judges == 3:
-        # 3 judges: LLaMA 3.1 8B, Mistral 7B, Qwen 7B
-        model_list = [VLLM_MODEL, MISTRAL_MODEL, QWEN_MODEL]
-    elif num_judges == 5:
-        # 5 judges: 2 LLaMAs, 2 Mistrals, 1 Qwen
-        model_list = [VLLM_MODEL, VLLM_MODEL, MISTRAL_MODEL, MISTRAL_MODEL, QWEN_MODEL]
-    else:
-        # Fallback: use LLaMA for all judges
-        model_list = [VLLM_MODEL] * num_judges
-        print(f"[Warning] Using default LLaMA model for all {num_judges} judges")
+    # Use same model for all judges (temperature variability provides randomness)
+    model_list = [VLLM_MODEL] * num_judges
     
     # Create judge configs with assigned models
     for i in range(1, num_judges + 1):
@@ -332,6 +322,28 @@ def run_ci_calibration_analysis(
         selected_samples = random.sample(all_samples, min(num_examples, len(all_samples)))
         print(f"Selected {len(selected_samples)} samples for analysis")
         
+        # Transform samples to TrustScore format
+        # load_summeval_with_sources returns samples with 'summary' and 'source_article'
+        # but pipeline expects 'prompt' and 'response'
+        for sample in selected_samples:
+            source_article = sample.get("source_article", "")
+            summary = sample.get("summary", "")
+            
+            # Create prompt from source article
+            if source_article:
+                sample["prompt"] = f"Summarize the following article:\n\n{source_article}"
+            else:
+                sample["prompt"] = "Generate a summary of the article."
+            
+            # Map summary to response
+            sample["response"] = summary
+            
+            # Map model_id to model for compatibility
+            sample["model"] = sample.get("model_id", "unknown")
+            sample["sample_id"] = sample.get("id", "unknown")
+        
+        print("Transformed samples to TrustScore format (prompt/response)")
+        
         # Save selected samples metadata
         samples_metadata = {
             "num_examples": len(selected_samples),
@@ -366,15 +378,8 @@ def run_ci_calibration_analysis(
                 for num_judges in judge_counts:
                     print(f"\n--- Config: {num_judges} judge(s) ---")
                     
-                    # Determine models being used
-                    if num_judges == 1:
-                        models_str = "LLaMA 3.1 8B"
-                    elif num_judges == 3:
-                        models_str = "LLaMA 3.1 8B, Mistral 7B, Qwen 7B"
-                    elif num_judges == 5:
-                        models_str = "2× LLaMA 3.1 8B, 2× Mistral 7B, 1× Qwen 7B"
-                    else:
-                        models_str = f"{num_judges}× LLaMA 3.1 8B"
+                    # Determine models being used (all same model due to VLLM limitation)
+                    models_str = f"{num_judges}× LLaMA 3.1 8B (same model, different seeds for randomness)"
                     print(f"  Models: {models_str}")
                     
                     # Create config for this judge count
