@@ -393,6 +393,8 @@ class Aggregator:
         For a weighted combination Y = w1*X1 + w2*X2 + w3*X3, the variance is:
         Var(Y) = w1^2 * Var(X1) + w2^2 * Var(X2) + w3^2 * Var(X3) (assuming independence)
         
+        If a CI is None (no spans for that category), treat it as 0.0 with no uncertainty.
+        
         Args:
             t_ci, e_ci, b_ci: Category severity score CIs (in severity space)
             weights: Aggregation weights
@@ -401,28 +403,29 @@ class Aggregator:
         Returns:
             ConfidenceInterval: Propagated CI for trust score (in severity space)
         """
-        if not all(ci.lower is not None and ci.upper is not None 
-                   for ci in [t_ci, e_ci, b_ci]):
-            return ConfidenceInterval(lower=None, upper=None)
+        # Extract centers and half-widths from input CIs, using 0.0 for missing CIs
+        def get_center_and_half_width(ci):
+            if ci is not None and ci.lower is not None and ci.upper is not None:
+                center = (ci.lower + ci.upper) / 2
+                half_width = (ci.upper - ci.lower) / 2
+                return center, half_width
+            else:
+                # Missing CI: treat as 0.0 with no uncertainty
+                return 0.0, 0.0
         
-        # Extract centers and half-widths from input CIs
-        centers = []
-        half_widths = []
-        cis = [t_ci, e_ci, b_ci]
-        weights_list = [weights.trustworthiness, weights.explainability, weights.bias]
+        t_center, t_half_width = get_center_and_half_width(t_ci)
+        e_center, e_half_width = get_center_and_half_width(e_ci)
+        b_center, b_half_width = get_center_and_half_width(b_ci)
         
-        for ci, weight in zip(cis, weights_list):
-            center = (ci.lower + ci.upper) / 2
-            half_width = (ci.upper - ci.lower) / 2
-            centers.append(center)
-            half_widths.append(half_width)
+        centers = [t_center, e_center, b_center]
+        half_widths = [t_half_width, e_half_width, b_half_width]
         
         # Calculate weighted center (this matches the trust_score calculation)
         if aggregation_method == "weighted_mean":
             weighted_center = (
-                weights.trustworthiness * centers[0] +
-                weights.explainability * centers[1] +
-                weights.bias * centers[2]
+                weights.trustworthiness * t_center +
+                weights.explainability * e_center +
+                weights.bias * b_center
             )
         elif aggregation_method == "median":
             weighted_center = statistics.median(centers)
@@ -437,19 +440,20 @@ class Aggregator:
         else:
             # Default to weighted mean
             weighted_center = (
-                weights.trustworthiness * centers[0] +
-                weights.explainability * centers[1] +
-                weights.bias * centers[2]
+                weights.trustworthiness * t_center +
+                weights.explainability * e_center +
+                weights.bias * b_center
             )
         
         # Propagate uncertainty using error propagation
         # For weighted combination: Var(Y) = sum(w_i^2 * Var(X_i))
         # Using half-width as uncertainty measure: SE ≈ half_width
         # Combined SE = sqrt(sum(w_i^2 * half_width_i^2))
+        # Missing CIs contribute 0.0 to the variance
         propagated_uncertainty: float = (
-            (weights.trustworthiness ** 2) * (half_widths[0] ** 2) +
-            (weights.explainability ** 2) * (half_widths[1] ** 2) +
-            (weights.bias ** 2) * (half_widths[2] ** 2)
+            (weights.trustworthiness ** 2) * (t_half_width ** 2) +
+            (weights.explainability ** 2) * (e_half_width ** 2) +
+            (weights.bias ** 2) * (b_half_width ** 2)
         ) ** 0.5
         
         # Calculate CI bounds (no clamping since we're in severity space)
@@ -466,6 +470,8 @@ class Aggregator:
         For a weighted combination Y = w1*X1 + w2*X2 + w3*X3, the variance is:
         Var(Y) = w1^2 * Var(X1) + w2^2 * Var(X2) + w3^2 * Var(X3) (assuming independence)
         
+        If a CI is None (no spans for that category), treat it as 0.0 with no uncertainty.
+        
         Args:
             t_ci, e_ci, b_ci: Category confidence CIs (in probability space [0-1])
             weights: Aggregation weights
@@ -473,37 +479,36 @@ class Aggregator:
         Returns:
             ConfidenceInterval: Propagated CI for trust confidence (in probability space [0-1], clamped)
         """
-        if not all(ci.lower is not None and ci.upper is not None 
-                   for ci in [t_ci, e_ci, b_ci]):
-            return ConfidenceInterval(lower=None, upper=None)
+        # Extract centers and half-widths from input CIs, using 0.0 for missing CIs
+        def get_center_and_half_width(ci):
+            if ci is not None and ci.lower is not None and ci.upper is not None:
+                center = (ci.lower + ci.upper) / 2
+                half_width = (ci.upper - ci.lower) / 2
+                return center, half_width
+            else:
+                # Missing CI: treat as 0.0 with no uncertainty
+                return 0.0, 0.0
         
-        # Extract centers and half-widths from input CIs
-        centers = []
-        half_widths = []
-        cis = [t_ci, e_ci, b_ci]
-        weights_list = [weights.trustworthiness, weights.explainability, weights.bias]
-        
-        for ci, weight in zip(cis, weights_list):
-            center = (ci.lower + ci.upper) / 2
-            half_width = (ci.upper - ci.lower) / 2
-            centers.append(center)
-            half_widths.append(half_width)
+        t_center, t_half_width = get_center_and_half_width(t_ci)
+        e_center, e_half_width = get_center_and_half_width(e_ci)
+        b_center, b_half_width = get_center_and_half_width(b_ci)
         
         # Calculate weighted center (weighted average of confidences)
         weighted_center: float = (
-            weights.trustworthiness * centers[0] +
-            weights.explainability * centers[1] +
-            weights.bias * centers[2]
+            weights.trustworthiness * t_center +
+            weights.explainability * e_center +
+            weights.bias * b_center
         )
         
         # Propagate uncertainty using error propagation
         # For weighted combination: Var(Y) = sum(w_i^2 * Var(X_i))
         # Using half-width as uncertainty measure: SE ≈ half_width
         # Combined SE = sqrt(sum(w_i^2 * half_width_i^2))
+        # Missing CIs contribute 0.0 to the variance
         propagated_uncertainty: float = (
-            (weights.trustworthiness ** 2) * (half_widths[0] ** 2) +
-            (weights.explainability ** 2) * (half_widths[1] ** 2) +
-            (weights.bias ** 2) * (half_widths[2] ** 2)
+            (weights.trustworthiness ** 2) * (t_half_width ** 2) +
+            (weights.explainability ** 2) * (e_half_width ** 2) +
+            (weights.bias ** 2) * (b_half_width ** 2)
         ) ** 0.5
         
         # Calculate CI bounds (clamped to [0, 1] since we're in probability space)
