@@ -265,13 +265,21 @@ class Aggregator:
         )
         
         # Calculate severity score CI with proper error propagation (in severity space)
+        # Use actual scores as centers (not CI centers) to match trust_score calculation
         trust_score_ci: ConfidenceInterval = self._propagate_severity_ci(
-            t_severity_ci, e_severity_ci, b_severity_ci, weights, agg_strategy.aggregation_method
+            t_score, t_severity_ci,
+            e_score, e_severity_ci,
+            b_score, b_severity_ci,
+            weights, agg_strategy.aggregation_method
         )
         
         # Calculate confidence CI with proper error propagation (in probability space [0-1])
+        # Use actual confidence values as centers (not CI centers) to match trust_confidence calculation
         trust_confidence_ci: ConfidenceInterval = self._propagate_confidence_ci(
-            t_confidence_ci, e_confidence_ci, b_confidence_ci, weights
+            t_confidence, t_confidence_ci,
+            e_confidence, e_confidence_ci,
+            b_confidence, b_confidence_ci,
+            weights
         )
         
         return trust_score, trust_score_ci, trust_confidence, trust_confidence_ci
@@ -385,17 +393,23 @@ class Aggregator:
         
         return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
     
-    def _propagate_severity_ci(self, t_ci: ConfidenceInterval, e_ci: ConfidenceInterval,
-                              b_ci: ConfidenceInterval, weights, aggregation_method: str) -> ConfidenceInterval:
+    def _propagate_severity_ci(self, t_score: float, t_ci: ConfidenceInterval,
+                              e_score: float, e_ci: ConfidenceInterval,
+                              b_score: float, b_ci: ConfidenceInterval,
+                              weights, aggregation_method: str) -> ConfidenceInterval:
         """
         Propagate uncertainty for severity score CIs using proper error propagation (in severity space).
         
         For a weighted combination Y = w1*X1 + w2*X2 + w3*X3, the variance is:
         Var(Y) = w1^2 * Var(X1) + w2^2 * Var(X2) + w3^2 * Var(X3) (assuming independence)
         
+        Uses actual scores as centers (not CI centers) to ensure consistency
+        with trust_score calculation. CI half-widths are used for uncertainty propagation.
+        
         If a CI is None (no spans for that category), treat it as 0.0 with no uncertainty.
         
         Args:
+            t_score, e_score, b_score: Actual severity scores (not CI centers)
             t_ci, e_ci, b_ci: Category severity score CIs (in severity space)
             weights: Aggregation weights
             aggregation_method: Method used to aggregate scores
@@ -403,46 +417,47 @@ class Aggregator:
         Returns:
             ConfidenceInterval: Propagated CI for trust score (in severity space)
         """
-        # Extract centers and half-widths from input CIs, using 0.0 for missing CIs
-        def get_center_and_half_width(ci):
+        # Extract half-widths from input CIs for uncertainty propagation
+        # Use actual scores as centers (not CI centers) to match trust_score
+        def get_half_width(ci):
             if ci is not None and ci.lower is not None and ci.upper is not None:
-                center = (ci.lower + ci.upper) / 2
                 half_width = (ci.upper - ci.lower) / 2
-                return center, half_width
+                return half_width
             else:
                 # Missing CI: treat as 0.0 with no uncertainty
-                return 0.0, 0.0
+                return 0.0
         
-        t_center, t_half_width = get_center_and_half_width(t_ci)
-        e_center, e_half_width = get_center_and_half_width(e_ci)
-        b_center, b_half_width = get_center_and_half_width(b_ci)
+        t_half_width = get_half_width(t_ci)
+        e_half_width = get_half_width(e_ci)
+        b_half_width = get_half_width(b_ci)
         
-        centers = [t_center, e_center, b_center]
+        scores = [t_score, e_score, b_score]
         half_widths = [t_half_width, e_half_width, b_half_width]
         
-        # Calculate weighted center (this matches the trust_score calculation)
+        # Calculate weighted center using actual scores (not CI centers)
+        # This ensures it matches trust_score calculation exactly
         if aggregation_method == "weighted_mean":
             weighted_center = (
-                weights.trustworthiness * t_center +
-                weights.explainability * e_center +
-                weights.bias * b_center
+                weights.trustworthiness * t_score +
+                weights.explainability * e_score +
+                weights.bias * b_score
             )
         elif aggregation_method == "median":
-            weighted_center = statistics.median(centers)
+            weighted_center = statistics.median(scores)
         elif aggregation_method == "robust_mean":
-            weighted_center = statistics.mean(centers)
+            weighted_center = statistics.mean(scores)
         elif aggregation_method == "max":
-            weighted_center = max(centers)
+            weighted_center = max(scores)
         elif aggregation_method == "min":
-            weighted_center = min(centers)
+            weighted_center = min(scores)
         elif aggregation_method == "geometric_mean":
-            weighted_center = statistics.geometric_mean(centers)
+            weighted_center = statistics.geometric_mean(scores)
         else:
             # Default to weighted mean
             weighted_center = (
-                weights.trustworthiness * t_center +
-                weights.explainability * e_center +
-                weights.bias * b_center
+                weights.trustworthiness * t_score +
+                weights.explainability * e_score +
+                weights.bias * b_score
             )
         
         # Propagate uncertainty using error propagation
@@ -462,42 +477,49 @@ class Aggregator:
         
         return ConfidenceInterval(lower=lower_bound, upper=upper_bound)
     
-    def _propagate_confidence_ci(self, t_ci: ConfidenceInterval, e_ci: ConfidenceInterval,
-                                 b_ci: ConfidenceInterval, weights) -> ConfidenceInterval:
+    def _propagate_confidence_ci(self, t_confidence: float, t_ci: ConfidenceInterval,
+                                 e_confidence: float, e_ci: ConfidenceInterval,
+                                 b_confidence: float, b_ci: ConfidenceInterval,
+                                 weights) -> ConfidenceInterval:
         """
         Propagate uncertainty for confidence CIs using proper error propagation (in probability space [0-1]).
         
         For a weighted combination Y = w1*X1 + w2*X2 + w3*X3, the variance is:
         Var(Y) = w1^2 * Var(X1) + w2^2 * Var(X2) + w3^2 * Var(X3) (assuming independence)
         
+        Uses actual confidence values as centers (not CI centers) to ensure consistency
+        with trust_confidence calculation. CI half-widths are used for uncertainty propagation.
+        
         If a CI is None (no spans for that category), treat it as 0.0 with no uncertainty.
         
         Args:
+            t_confidence, e_confidence, b_confidence: Actual confidence values (not CI centers)
             t_ci, e_ci, b_ci: Category confidence CIs (in probability space [0-1])
             weights: Aggregation weights
             
         Returns:
             ConfidenceInterval: Propagated CI for trust confidence (in probability space [0-1], clamped)
         """
-        # Extract centers and half-widths from input CIs, using 0.0 for missing CIs
-        def get_center_and_half_width(ci):
+        # Extract half-widths from input CIs for uncertainty propagation
+        # Use actual confidence values as centers (not CI centers) to match trust_confidence
+        def get_half_width(ci):
             if ci is not None and ci.lower is not None and ci.upper is not None:
-                center = (ci.lower + ci.upper) / 2
                 half_width = (ci.upper - ci.lower) / 2
-                return center, half_width
+                return half_width
             else:
                 # Missing CI: treat as 0.0 with no uncertainty
-                return 0.0, 0.0
+                return 0.0
         
-        t_center, t_half_width = get_center_and_half_width(t_ci)
-        e_center, e_half_width = get_center_and_half_width(e_ci)
-        b_center, b_half_width = get_center_and_half_width(b_ci)
+        t_half_width = get_half_width(t_ci)
+        e_half_width = get_half_width(e_ci)
+        b_half_width = get_half_width(b_ci)
         
-        # Calculate weighted center (weighted average of confidences)
+        # Calculate weighted center using actual confidence values (not CI centers)
+        # This ensures it matches trust_confidence = w1*conf1 + w2*conf2 + w3*conf3
         weighted_center: float = (
-            weights.trustworthiness * t_center +
-            weights.explainability * e_center +
-            weights.bias * b_center
+            weights.trustworthiness * t_confidence +
+            weights.explainability * e_confidence +
+            weights.bias * b_confidence
         )
         
         # Propagate uncertainty using error propagation
