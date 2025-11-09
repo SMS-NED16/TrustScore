@@ -14,9 +14,9 @@ from datetime import datetime
 from models.llm_record import LLMRecord, SpansLevelTags, GradedSpans, GradedSpan, AggregatedOutput
 from modules.span_tagger import SpanTagger, MockSpanTagger
 from modules.judges.base_judge import BaseJudge
-from modules.judges.trustworthiness_judge import TrustworthinessJudge
-from modules.judges.bias_judge import BiasJudge
-from modules.judges.explainability_judge import ExplainabilityJudge
+from modules.judges.trustworthiness_judge import TrustworthinessJudge, MockTrustworthinessJudge
+from modules.judges.bias_judge import BiasJudge, MockBiasJudge
+from modules.judges.explainability_judge import ExplainabilityJudge, MockExplainabilityJudge
 from modules.aggregator import Aggregator
 from config.settings import TrustScoreConfig, load_config
 
@@ -60,19 +60,31 @@ class TrustScorePipeline:
             if not judge_config.enabled:
                 continue
                 
-            # Route judges by name pattern
+            # Route judges by name pattern - use mock judges if in mock mode
             if "trust" in judge_name.lower():
-                judge = TrustworthinessJudge(judge_config, self.config, self.api_key)
+                if self.use_mock:
+                    judge = MockTrustworthinessJudge(judge_config, self.config, self.api_key)
+                else:
+                    judge = TrustworthinessJudge(judge_config, self.config, self.api_key)
                 self.judges["trustworthiness"][judge_name] = judge
             elif "bias" in judge_name.lower():
-                judge = BiasJudge(judge_config, self.config, self.api_key)
+                if self.use_mock:
+                    judge = MockBiasJudge(judge_config, self.config, self.api_key)
+                else:
+                    judge = BiasJudge(judge_config, self.config, self.api_key)
                 self.judges["bias"][judge_name] = judge
             elif "explain" in judge_name.lower():
-                judge = ExplainabilityJudge(judge_config, self.config, self.api_key)
+                if self.use_mock:
+                    judge = MockExplainabilityJudge(judge_config, self.config, self.api_key)
+                else:
+                    judge = ExplainabilityJudge(judge_config, self.config, self.api_key)
                 self.judges["explainability"][judge_name] = judge
             else:
                 # Default to trustworthiness judge for generic judges
-                judge = TrustworthinessJudge(judge_config, self.config, self.api_key)
+                if self.use_mock:
+                    judge = MockTrustworthinessJudge(judge_config, self.config, self.api_key)
+                else:
+                    judge = TrustworthinessJudge(judge_config, self.config, self.api_key)
                 self.judges["trustworthiness"][judge_name] = judge
         
         # Initialize aggregator
