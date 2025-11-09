@@ -197,6 +197,63 @@ header h1 {
     opacity: 0.9;
 }
 
+.score-rating-container {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.severity-rating,
+.confidence-rating {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.rating-label {
+    font-size: 0.875rem;
+    opacity: 0.9;
+}
+
+.rating-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.rating-badge.severity-low {
+    background-color: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
+.rating-badge.severity-medium {
+    background-color: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+}
+
+.rating-badge.severity-high {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.rating-badge.confidence-low {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.rating-badge.confidence-medium {
+    background-color: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+}
+
+.rating-badge.confidence-high {
+    background-color: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
 /* Categories Grid */
 .categories-grid {
     display: grid;
@@ -218,11 +275,27 @@ header h1 {
     box-shadow: var(--shadow-lg);
 }
 
+.category-card.clickable {
+    cursor: pointer;
+}
+
+.category-count {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: normal;
+    margin-left: auto;
+}
+
 .category-header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     margin-bottom: 1rem;
+    width: 100%;
+}
+
+.category-header h4 {
+    flex: 1;
 }
 
 .category-icon {
@@ -292,6 +365,10 @@ header h1 {
     opacity: 0.8;
 }
 
+.highlight {
+    position: relative;
+}
+
 .highlight.trustworthiness {
     background-color: rgba(220, 38, 38, 0.2);
     border-bottom: 2px solid var(--error-trustworthiness);
@@ -305,6 +382,68 @@ header h1 {
 .highlight.explainability {
     background-color: rgba(202, 138, 4, 0.2);
     border-bottom: 2px solid var(--error-explainability);
+}
+
+/* Severity-based colors */
+.highlight.severity-minor {
+    background-color: rgba(16, 185, 129, 0.15);
+    border-bottom: 2px solid var(--success-color);
+}
+
+.highlight.severity-major {
+    background-color: rgba(245, 158, 11, 0.2);
+    border-bottom: 2px solid var(--warning-color);
+}
+
+.highlight.severity-critical {
+    background-color: rgba(239, 68, 68, 0.25);
+    border-bottom: 2px solid var(--danger-color);
+}
+
+/* Tooltip */
+.highlight-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    min-width: 300px;
+    max-width: 500px;
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    margin-bottom: 0.5rem;
+    display: none;
+    font-size: 0.875rem;
+}
+
+.highlight:hover .highlight-tooltip {
+    display: block;
+}
+
+.tooltip-explanation {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary);
+}
+
+.tooltip-judges {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.tooltip-judge-item {
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.tooltip-ci {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
 }
 
 /* Errors Section */
@@ -470,6 +609,157 @@ header h1 {
     margin-top: 1rem;
 }
 
+/* Configuration Section */
+.config-section {
+    margin-bottom: 1.5rem;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.config-summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 0.5rem;
+    user-select: none;
+}
+
+.config-summary:hover {
+    background-color: var(--bg-color);
+    border-radius: 4px;
+}
+
+.config-content {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.config-content h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary);
+}
+
+.weights-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.weight-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.weight-input-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.weight-input-group input {
+    padding: 0.5rem;
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 1rem;
+}
+
+.weight-validation {
+    font-size: 0.875rem;
+    color: var(--danger-color);
+    margin-top: 0.5rem;
+}
+
+.judge-config {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.judge-type-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.judge-type-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.judge-type-group input {
+    padding: 0.5rem;
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 1rem;
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.modal-content {
+    background: var(--card-bg);
+    border-radius: 12px;
+    max-width: 800px;
+    width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 2rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.modal-close:hover {
+    background-color: var(--bg-color);
+}
+
+.modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .container {
@@ -486,6 +776,11 @@ header h1 {
 
     .score-value {
         font-size: 2rem;
+    }
+    
+    .modal-content {
+        width: 95%;
+        max-height: 90vh;
     }
 }
 

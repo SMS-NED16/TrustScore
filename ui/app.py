@@ -16,7 +16,7 @@ import traceback
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pipeline.orchestrator import TrustScorePipeline, analyze_llm_response
-from config.settings import load_config
+from config.settings import load_config, TrustScoreConfig
 
 # Get the directory where this file is located
 BASE_DIR = Path(__file__).parent
@@ -29,10 +29,13 @@ CORS(app)  # Enable CORS for frontend
 pipeline: Optional[TrustScorePipeline] = None
 
 
-def get_pipeline(use_mock: bool = False, api_key: Optional[str] = None) -> TrustScorePipeline:
+def get_pipeline(use_mock: bool = False, api_key: Optional[str] = None, config: Optional[TrustScoreConfig] = None) -> TrustScorePipeline:
     """Get or create pipeline instance"""
     global pipeline
-    if pipeline is None:
+    # Always create a new pipeline if config is provided (to respect custom config)
+    if config is not None:
+        pipeline = TrustScorePipeline(config=config, api_key=api_key, use_mock=use_mock)
+    elif pipeline is None:
         pipeline = TrustScorePipeline(api_key=api_key, use_mock=use_mock)
     return pipeline
 
@@ -74,14 +77,62 @@ def analyze():
         model = data.get('model', 'unknown')
         use_mock = data.get('use_mock', False)
         api_key = data.get('api_key', os.getenv('OPENAI_API_KEY'))
+        config_data = data.get('config', {})
         
         if not prompt:
             return jsonify({"error": "Prompt is required"}), 400
         if not response:
             return jsonify({"error": "Response is required"}), 400
         
+        # Create custom config if provided
+        config = None
+        if config_data:
+            from config.settings import TrustScoreConfig, AggregationWeights, JudgeConfig, LLMProvider
+            
+            # Create aggregation weights
+            weights = config_data.get('weights', {})
+            aggregation_weights = AggregationWeights(
+                trustworthiness=weights.get('trustworthiness', 0.5),
+                explainability=weights.get('explainability', 0.3),
+                bias=weights.get('bias', 0.2)
+            )
+            
+            # Create judge configs based on counts
+            judge_counts = config_data.get('judge_counts', {})
+            judges = {}
+            
+            # Trustworthiness judges
+            for i in range(judge_counts.get('trustworthiness', 3)):
+                judges[f"trust_judge_{i+1}"] = JudgeConfig(
+                    name=f"trust_judge_{i+1}",
+                    model="gpt-4o",
+                    provider=LLMProvider.OPENAI
+                )
+            
+            # Explainability judges
+            for i in range(judge_counts.get('explainability', 3)):
+                judges[f"explain_judge_{i+1}"] = JudgeConfig(
+                    name=f"explain_judge_{i+1}",
+                    model="gpt-4o",
+                    provider=LLMProvider.OPENAI
+                )
+            
+            # Bias judges
+            for i in range(judge_counts.get('bias', 3)):
+                judges[f"bias_judge_{i+1}"] = JudgeConfig(
+                    name=f"bias_judge_{i+1}",
+                    model="gpt-4o",
+                    provider=LLMProvider.OPENAI
+                )
+            
+            # Create config
+            config = TrustScoreConfig(
+                aggregation_weights=aggregation_weights,
+                judges=judges
+            )
+        
         # Get pipeline instance
-        pipeline = get_pipeline(use_mock=use_mock, api_key=api_key)
+        pipeline = get_pipeline(use_mock=use_mock, api_key=api_key, config=config)
         
         # Run analysis
         result = pipeline.process(prompt=prompt, response=response, model=model)

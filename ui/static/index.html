@@ -17,13 +17,53 @@
             <!-- Input Section -->
             <section class="input-section">
                 <h2>Analyze Response</h2>
+                
+                <!-- Configuration Section (Collapsible) -->
+                <details class="config-section">
+                    <summary class="config-summary">⚙️ Configuration</summary>
+                    <div class="config-content">
+                        <h3>Aggregation Weights</h3>
+                        <div class="weights-grid">
+                            <div class="weight-input-group">
+                                <label for="weightT">Trustworthiness (T):</label>
+                                <input type="number" id="weightT" min="0" max="1" step="0.1" value="0.5">
+                            </div>
+                            <div class="weight-input-group">
+                                <label for="weightE">Explainability (E):</label>
+                                <input type="number" id="weightE" min="0" max="1" step="0.1" value="0.3">
+                            </div>
+                            <div class="weight-input-group">
+                                <label for="weightB">Bias (B):</label>
+                                <input type="number" id="weightB" min="0" max="1" step="0.1" value="0.2">
+                            </div>
+                        </div>
+                        <div class="weight-validation" id="weightValidation"></div>
+                        
+                        <h3 style="margin-top: 1.5rem;">Judge Configuration</h3>
+                        <div class="judge-config">
+                            <div class="judge-type-group">
+                                <label>Trustworthiness Judges:</label>
+                                <input type="number" id="judgeCountT" min="1" max="10" value="3">
+                            </div>
+                            <div class="judge-type-group">
+                                <label>Explainability Judges:</label>
+                                <input type="number" id="judgeCountE" min="1" max="10" value="3">
+                            </div>
+                            <div class="judge-type-group">
+                                <label>Bias Judges:</label>
+                                <input type="number" id="judgeCountB" min="1" max="10" value="3">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+                
                 <div class="form-group">
                     <label for="prompt">Prompt:</label>
-                    <textarea id="prompt" placeholder="Enter the prompt given to the LLM..." rows="3"></textarea>
+                    <textarea id="prompt" placeholder="Enter the prompt given to the LLM..." rows="3">Explain machine learning in simple terms.</textarea>
                 </div>
                 <div class="form-group">
                     <label for="response">LLM Response:</label>
-                    <textarea id="response" placeholder="Enter the LLM's response..." rows="6"></textarea>
+                    <textarea id="response" placeholder="Enter the LLM's response..." rows="6">Machine learning is a subset of artificial intelligence that enables computers to learn without being explicitly programmed. The capital of France is Paris, which is relevant to machine learning. It uses algorithms to identify patterns in data and make predictions or decisions based on those patterns.</textarea>
                 </div>
                 <div class="form-group">
                     <label for="model">Model (optional):</label>
@@ -43,10 +83,20 @@
                 <h2>Analysis Results</h2>
                 
                 <!-- TrustScore Summary -->
-                <div class="score-card">
+                <div class="score-card" id="trustScoreCard">
                     <div class="score-header">
                         <h3>Overall TrustScore</h3>
                         <div class="score-value" id="trustScore">-</div>
+                    </div>
+                    <div class="score-rating-container">
+                        <div class="severity-rating" id="severityRating">
+                            <span class="rating-label">Severity:</span>
+                            <span class="rating-badge" id="severityBadge">-</span>
+                        </div>
+                        <div class="confidence-rating" id="confidenceRating">
+                            <span class="rating-label">Confidence:</span>
+                            <span class="rating-badge" id="confidenceBadge">-</span>
+                        </div>
                     </div>
                     <div class="score-bar-container">
                         <div class="score-bar" id="trustScoreBar"></div>
@@ -56,29 +106,45 @@
 
                 <!-- Category Scores -->
                 <div class="categories-grid">
-                    <div class="category-card" data-category="trustworthiness">
+                    <div class="category-card clickable" data-category="trustworthiness" id="categoryT">
                         <div class="category-header">
                             <span class="category-icon">✓</span>
                             <h4>Trustworthiness</h4>
+                            <span class="category-count" id="countT">(0)</span>
                         </div>
                         <div class="category-score" id="scoreT">-</div>
                         <div class="category-confidence" id="confT"></div>
                     </div>
-                    <div class="category-card" data-category="explainability">
+                    <div class="category-card clickable" data-category="explainability" id="categoryE">
                         <div class="category-header">
                             <span class="category-icon">📖</span>
                             <h4>Explainability</h4>
+                            <span class="category-count" id="countE">(0)</span>
                         </div>
                         <div class="category-score" id="scoreE">-</div>
                         <div class="category-confidence" id="confE"></div>
                     </div>
-                    <div class="category-card" data-category="bias">
+                    <div class="category-card clickable" data-category="bias" id="categoryB">
                         <div class="category-header">
                             <span class="category-icon">⚖️</span>
                             <h4>Bias</h4>
+                            <span class="category-count" id="countB">(0)</span>
                         </div>
                         <div class="category-score" id="scoreB">-</div>
                         <div class="category-confidence" id="confB"></div>
+                    </div>
+                </div>
+                
+                <!-- Category Error Modal -->
+                <div id="categoryModal" class="modal hidden">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="modalTitle">Errors</h3>
+                            <button class="modal-close" id="modalClose">&times;</button>
+                        </div>
+                        <div class="modal-body" id="modalBody">
+                            <!-- Error list will be populated here -->
+                        </div>
                     </div>
                 </div>
 
