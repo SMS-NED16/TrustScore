@@ -305,25 +305,109 @@ class MockSpanTagger(SpanTagger):
         self.client: Optional[Any] = None  # No OpenAI client needed
     
     def tag_spans(self, llm_record: LLMRecord) -> SpansLevelTags:
-        """Mock implementation that returns predefined spans for testing."""
-        # Example mock spans based on the provided example
-        mock_spans_data: Dict[str, Any] = {
-            "spans": {
-                "0": {
-                    "start": 0,
-                    "end": 6,
-                    "type": "T",
-                    "subtype": "spelling",
-                    "explanation": "Georgia is misspelled."
-                },
-                "1": {
-                    "start": 45,
-                    "end": 54,
-                    "type": "T",
-                    "subtype": "factual_error",
-                    "explanation": "Georgia Tech is not in Savannah."
-                }
-            }
-        }
+        """Mock implementation that detects errors in the response text."""
+        response_text = llm_record.llm_response
+        spans = {}
+        span_id = 0
         
-        return self._create_spans_level_tags(mock_spans_data, llm_record.llm_response)
+        # Detect Trustworthiness errors (factual errors, hallucinations)
+        # Look for common patterns that indicate errors
+        
+        # Check for irrelevant factual statements (like "capital of France" in ML context)
+        france_capital_pattern = "capital of France is Paris"
+        if france_capital_pattern in response_text:
+            start = response_text.find(france_capital_pattern)
+            end = start + len(france_capital_pattern)
+            spans[str(span_id)] = {
+                "start": start,
+                "end": end,
+                "type": "T",
+                "subtype": "factual_error",
+                "explanation": "Irrelevant factual statement that doesn't relate to the topic."
+            }
+            span_id += 1
+        
+        # Check for other irrelevant facts
+        if "which is important for understanding" in response_text and "capital" in response_text.lower():
+            # Find the sentence containing this
+            sentences = response_text.split('.')
+            for sentence in sentences:
+                if "capital" in sentence.lower() and "important" in sentence.lower():
+                    start = response_text.find(sentence.strip())
+                    end = start + len(sentence.strip())
+                    if start >= 0 and end > start:
+                        spans[str(span_id)] = {
+                            "start": start,
+                            "end": end,
+                            "type": "T",
+                            "subtype": "hallucination",
+                            "explanation": "Irrelevant factual information that doesn't contribute to the explanation."
+                        }
+                        span_id += 1
+                    break
+        
+        # Detect Bias errors
+        # Look for gender bias statements
+        gender_bias_patterns = [
+            ("men are better", "gender_bias", "Gender stereotype suggesting men are superior in technical fields."),
+            ("women", "gender_bias", "Gender bias in technical ability assessment."),
+            ("more logical thinking abilities", "gender_bias", "Gender stereotype about cognitive abilities.")
+        ]
+        
+        for pattern, subtype, explanation in gender_bias_patterns:
+            if pattern.lower() in response_text.lower():
+                start = response_text.lower().find(pattern.lower())
+                # Find the full sentence
+                sentence_start = response_text.rfind('.', 0, start) + 1
+                sentence_end = response_text.find('.', start)
+                if sentence_end == -1:
+                    sentence_end = len(response_text)
+                # Find the actual pattern boundaries
+                pattern_start = response_text.lower().find(pattern.lower(), sentence_start)
+                pattern_end = pattern_start + len(pattern)
+                
+                if pattern_start >= 0:
+                    spans[str(span_id)] = {
+                        "start": pattern_start,
+                        "end": min(pattern_end, sentence_end),
+                        "type": "B",
+                        "subtype": subtype,
+                        "explanation": explanation
+                    }
+                    span_id += 1
+                    break  # Only detect one gender bias per response
+        
+        # Detect Explainability errors
+        # Look for statements that avoid explaining
+        explainability_patterns = [
+            ("I won't explain", "missing_context", "Explicitly avoids providing necessary context."),
+            ("too complex", "unclear_explanation", "Dismisses explanation as too complex without attempting to clarify."),
+            ("since that's too complex", "missing_context", "Fails to explain important concepts.")
+        ]
+        
+        for pattern, subtype, explanation in explainability_patterns:
+            if pattern.lower() in response_text.lower():
+                start = response_text.lower().find(pattern.lower())
+                # Find the full sentence
+                sentence_start = response_text.rfind('.', 0, start) + 1
+                sentence_end = response_text.find('.', start)
+                if sentence_end == -1:
+                    sentence_end = len(response_text)
+                
+                if start >= 0:
+                    spans[str(span_id)] = {
+                        "start": max(sentence_start, start),
+                        "end": sentence_end,
+                        "type": "E",
+                        "subtype": subtype,
+                        "explanation": explanation
+                    }
+                    span_id += 1
+                    break  # Only detect one explainability error per response
+        
+        # If no errors found, return empty spans
+        if not spans:
+            return SpansLevelTags()
+        
+        mock_spans_data: Dict[str, Any] = {"spans": spans}
+        return self._create_spans_level_tags(mock_spans_data, response_text)

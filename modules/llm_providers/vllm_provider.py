@@ -5,16 +5,34 @@ This module implements the vLLM provider for fast batched LLM inference.
 """
 
 from typing import List, Dict, Any, Optional
-from vllm import LLM, SamplingParams
-from modules.llm_providers.base_llm import BaseLLMProvider
 import os
-from huggingface_hub import login
+
+# Handle vllm import gracefully
+try:
+    from vllm import LLM, SamplingParams
+    from huggingface_hub import login
+    VLLM_IMPORTED = True
+except ImportError as e:
+    VLLM_IMPORTED = False
+    _import_error = e
+    # Create dummy classes to prevent import errors
+    LLM = None  # type: ignore
+    SamplingParams = None  # type: ignore
+    login = None  # type: ignore
+
+from modules.llm_providers.base_llm import BaseLLMProvider
 
 
 class VLLMProvider(BaseLLMProvider):
     """vLLM provider implementation for fast batched inference"""
     
     def __init__(self, config):
+        if not VLLM_IMPORTED:
+            raise ImportError(
+                f"vLLM is not available. Original error: {_import_error}. "
+                "Please install vllm package. Note: vLLM may not be available on Windows."
+            )
+        
         super().__init__(config)
         self.llm = None
         self.sampling_params = None

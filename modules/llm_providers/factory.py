@@ -8,7 +8,14 @@ from typing import Optional, Dict
 from modules.llm_providers.base_llm import BaseLLMProvider
 from modules.llm_providers.openai_provider import OpenAIProvider
 from modules.llm_providers.llama_provider import LLaMAProvider
-from modules.llm_providers.vllm_provider import VLLMProvider
+
+# vLLM is optional - import lazily to avoid errors if not available
+try:
+    from modules.llm_providers.vllm_provider import VLLMProvider
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLMProvider = None  # type: ignore
+    VLLM_AVAILABLE = False
 
 class LLMProviderFactory:
     """Factory for creating LLM providers"""
@@ -21,6 +28,13 @@ class LLMProviderFactory:
         """Create LLM provider based on configuration"""
         # For vLLM, use caching to ensure only one instance is created
         if config.provider == "vllm":
+            if not VLLM_AVAILABLE:
+                raise ImportError(
+                    "vLLM is not available. Please install vllm package. "
+                    "Note: vLLM may not be available on Windows. "
+                    "Consider using 'openai' or 'llama' provider instead."
+                )
+            
             # Create a cache key from model name
             cache_key = f"vllm_{config.model}"
             
