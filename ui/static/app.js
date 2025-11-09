@@ -17,9 +17,13 @@ const weightT = document.getElementById('weightT');
 const weightE = document.getElementById('weightE');
 const weightB = document.getElementById('weightB');
 const weightValidation = document.getElementById('weightValidation');
+const spanTaggerModel = document.getElementById('spanTaggerModel');
 const judgeCountT = document.getElementById('judgeCountT');
 const judgeCountE = document.getElementById('judgeCountE');
 const judgeCountB = document.getElementById('judgeCountB');
+const judgeModelsT = document.getElementById('judgeModelsT');
+const judgeModelsE = document.getElementById('judgeModelsE');
+const judgeModelsB = document.getElementById('judgeModelsB');
 
 // Result display elements
 const trustScoreEl = document.getElementById('trustScore');
@@ -54,11 +58,21 @@ analyzeBtn.addEventListener('click', handleAnalyze);
 weightT.addEventListener('input', validateWeights);
 weightE.addEventListener('input', validateWeights);
 weightB.addEventListener('input', validateWeights);
+judgeCountT.addEventListener('input', () => updateJudgeModelInputs('T', judgeCountT.value, judgeModelsT));
+judgeCountE.addEventListener('input', () => updateJudgeModelInputs('E', judgeCountE.value, judgeModelsE));
+judgeCountB.addEventListener('input', () => updateJudgeModelInputs('B', judgeCountB.value, judgeModelsB));
 modalClose.addEventListener('click', () => categoryModal.classList.add('hidden'));
 categoryModal.addEventListener('click', (e) => {
     if (e.target === categoryModal) {
         categoryModal.classList.add('hidden');
     }
+});
+
+// Initialize judge model inputs on page load
+window.addEventListener('load', () => {
+    updateJudgeModelInputs('T', judgeCountT.value, judgeModelsT);
+    updateJudgeModelInputs('E', judgeCountE.value, judgeModelsE);
+    updateJudgeModelInputs('B', judgeCountB.value, judgeModelsB);
 });
 
 // Category card click handlers
@@ -83,6 +97,39 @@ function validateWeights() {
     }
 }
 
+// Update judge model inputs dynamically based on count
+function updateJudgeModelInputs(category, count, container) {
+    const numJudges = parseInt(count) || 1;
+    container.innerHTML = '';
+    
+    for (let i = 1; i <= numJudges; i++) {
+        const inputGroup = document.createElement('div');
+        inputGroup.className = 'judge-model-input-group';
+        inputGroup.innerHTML = `
+            <label for="judgeModel${category}${i}">Judge ${i} Model:</label>
+            <input type="text" id="judgeModel${category}${i}" 
+                   placeholder="gpt-4o" value="gpt-4o" 
+                   class="judge-model-input">
+        `;
+        container.appendChild(inputGroup);
+    }
+}
+
+// Get judge models for a category
+function getJudgeModels(category, count) {
+    const models = [];
+    const numJudges = parseInt(count) || 1;
+    for (let i = 1; i <= numJudges; i++) {
+        const input = document.getElementById(`judgeModel${category}${i}`);
+        if (input) {
+            models.push(input.value.trim() || 'gpt-4o');
+        } else {
+            models.push('gpt-4o'); // Default if input doesn't exist yet
+        }
+    }
+    return models;
+}
+
 // Get configuration from UI
 function getConfiguration() {
     return {
@@ -90,6 +137,12 @@ function getConfiguration() {
             trustworthiness: parseFloat(weightT.value) || 0.5,
             explainability: parseFloat(weightE.value) || 0.3,
             bias: parseFloat(weightB.value) || 0.2
+        },
+        models: {
+            span_tagger: spanTaggerModel.value.trim() || 'gpt-4o',
+            trustworthiness: getJudgeModels('T', judgeCountT.value),
+            explainability: getJudgeModels('E', judgeCountE.value),
+            bias: getJudgeModels('B', judgeCountB.value)
         },
         judge_counts: {
             trustworthiness: parseInt(judgeCountT.value) || 3,

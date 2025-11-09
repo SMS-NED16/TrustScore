@@ -97,36 +97,70 @@ def analyze():
                 bias=weights.get('bias', 0.2)
             )
             
-            # Create judge configs based on counts
+            # Get model configurations
+            models = config_data.get('models', {})
+            span_tagger_model = models.get('span_tagger', 'gpt-4o')
+            
+            # Get judge models (can be a list for each category)
+            judge_models_t = models.get('trustworthiness', ['gpt-4o'])
+            judge_models_e = models.get('explainability', ['gpt-4o'])
+            judge_models_b = models.get('bias', ['gpt-4o'])
+            
+            # Ensure judge_models are lists
+            if not isinstance(judge_models_t, list):
+                judge_models_t = [judge_models_t]
+            if not isinstance(judge_models_e, list):
+                judge_models_e = [judge_models_e]
+            if not isinstance(judge_models_b, list):
+                judge_models_b = [judge_models_b]
+            
+            # Create span tagger config
+            from config.settings import SpanTaggerConfig
+            span_tagger_config = SpanTaggerConfig(
+                model=span_tagger_model,
+                provider=LLMProvider.OPENAI
+            )
+            
+            # Create judge configs based on counts and models
             judge_counts = config_data.get('judge_counts', {})
             judges = {}
             
-            # Trustworthiness judges
-            for i in range(judge_counts.get('trustworthiness', 3)):
+            # Trustworthiness judges - use different models for each
+            num_t_judges = judge_counts.get('trustworthiness', 3)
+            for i in range(num_t_judges):
+                # Cycle through models if more judges than models provided
+                model = judge_models_t[i % len(judge_models_t)]
                 judges[f"trust_judge_{i+1}"] = JudgeConfig(
                     name=f"trust_judge_{i+1}",
-                    model="gpt-4o",
+                    model=model,
                     provider=LLMProvider.OPENAI
                 )
             
-            # Explainability judges
-            for i in range(judge_counts.get('explainability', 3)):
+            # Explainability judges - use different models for each
+            num_e_judges = judge_counts.get('explainability', 3)
+            for i in range(num_e_judges):
+                # Cycle through models if more judges than models provided
+                model = judge_models_e[i % len(judge_models_e)]
                 judges[f"explain_judge_{i+1}"] = JudgeConfig(
                     name=f"explain_judge_{i+1}",
-                    model="gpt-4o",
+                    model=model,
                     provider=LLMProvider.OPENAI
                 )
             
-            # Bias judges
-            for i in range(judge_counts.get('bias', 3)):
+            # Bias judges - use different models for each
+            num_b_judges = judge_counts.get('bias', 3)
+            for i in range(num_b_judges):
+                # Cycle through models if more judges than models provided
+                model = judge_models_b[i % len(judge_models_b)]
                 judges[f"bias_judge_{i+1}"] = JudgeConfig(
                     name=f"bias_judge_{i+1}",
-                    model="gpt-4o",
+                    model=model,
                     provider=LLMProvider.OPENAI
                 )
             
             # Create config
             config = TrustScoreConfig(
+                span_tagger=span_tagger_config,
                 aggregation_weights=aggregation_weights,
                 judges=judges
             )
