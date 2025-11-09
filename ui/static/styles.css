@@ -336,8 +336,30 @@ header h1 {
     margin-bottom: 2rem;
 }
 
-.response-viewer h3 {
+.response-viewer summary {
+    cursor: pointer;
+    list-style: none;
     margin-bottom: 1rem;
+}
+
+.response-viewer summary::-webkit-details-marker {
+    display: none;
+}
+
+.response-viewer summary::before {
+    content: '▼ ';
+    display: inline-block;
+    margin-right: 0.5rem;
+    transition: transform 0.2s;
+}
+
+.response-viewer[open] summary::before {
+    transform: rotate(-90deg);
+}
+
+.response-viewer h3 {
+    display: inline;
+    margin-bottom: 0;
     color: var(--text-primary);
 }
 
@@ -367,6 +389,8 @@ header h1 {
 
 .highlight {
     position: relative;
+    display: inline;
+    white-space: normal;
 }
 
 .highlight.trustworthiness {
@@ -447,8 +471,34 @@ header h1 {
 }
 
 /* Errors Section */
-.errors-section h3 {
+.errors-section {
+    margin-bottom: 2rem;
+}
+
+.errors-section summary {
+    cursor: pointer;
+    list-style: none;
     margin-bottom: 1rem;
+}
+
+.errors-section summary::-webkit-details-marker {
+    display: none;
+}
+
+.errors-section summary::before {
+    content: '▼ ';
+    display: inline-block;
+    margin-right: 0.5rem;
+    transition: transform 0.2s;
+}
+
+.errors-section[open] summary::before {
+    transform: rotate(-90deg);
+}
+
+.errors-section h3 {
+    display: inline;
+    margin-bottom: 0;
     color: var(--text-primary);
 }
 

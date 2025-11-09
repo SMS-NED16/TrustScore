@@ -308,10 +308,7 @@ function displayHighlightedResponse(response, errors) {
 
         // Add highlighted error text with tooltip
         const errorText = response.substring(start, end);
-        html += `<span class="highlight ${errorType} severity-${severity}" data-error-index="${index}">
-            ${escapeHtml(errorText)}
-            <div class="highlight-tooltip">${tooltipContent}</div>
-        </span>`;
+        html += `<span class="highlight ${errorType} severity-${severity}" data-error-index="${index}">${escapeHtml(errorText)}<div class="highlight-tooltip">${tooltipContent}</div></span>`;
 
         lastIndex = end;
     });
