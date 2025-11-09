@@ -337,16 +337,16 @@ function buildTooltipContent(error) {
         html += '</div>';
     }
     
-    // Add CIs
-    if (error.severity_score_ci.lower !== null) {
+    // Add CIs - both severity space and probability space
+    if (error.severity_score_ci && error.severity_score_ci.lower !== null) {
         html += `<div class="tooltip-ci">
-            <strong>Severity CI:</strong> [${error.severity_score_ci.lower.toFixed(3)}, ${error.severity_score_ci.upper.toFixed(3)}]
+            <strong>Severity CI (severity space):</strong> [${error.severity_score_ci.lower.toFixed(3)}, ${error.severity_score_ci.upper.toFixed(3)}]
         </div>`;
     }
     
-    if (error.confidence_ci.lower !== null) {
+    if (error.confidence_ci && error.confidence_ci.lower !== null) {
         html += `<div class="tooltip-ci">
-            <strong>Confidence CI:</strong> [${error.confidence_ci.lower.toFixed(3)}, ${error.confidence_ci.upper.toFixed(3)}]
+            <strong>Confidence CI (probability space):</strong> [${error.confidence_ci.lower.toFixed(3)}, ${error.confidence_ci.upper.toFixed(3)}]
         </div>`;
     }
     
@@ -388,12 +388,20 @@ function displayErrors(errors) {
                         <span class="metric-value">Chars ${error.span.start}-${error.span.end}</span>
                     </div>` : ''}
                 </div>
-                ${error.severity_score_ci.lower !== null ? `
+                ${(error.severity_score_ci && error.severity_score_ci.lower !== null) || (error.confidence_ci && error.confidence_ci.lower !== null) ? `
                     <div class="error-metrics" style="margin-top: 0.5rem;">
-                        <div class="metric">
-                            <span class="metric-label">Severity CI</span>
-                            <span class="metric-value">[${error.severity_score_ci.lower.toFixed(3)}, ${error.severity_score_ci.upper.toFixed(3)}]</span>
-                        </div>
+                        ${error.severity_score_ci && error.severity_score_ci.lower !== null ? `
+                            <div class="metric">
+                                <span class="metric-label">Severity CI (severity space)</span>
+                                <span class="metric-value">[${error.severity_score_ci.lower.toFixed(3)}, ${error.severity_score_ci.upper.toFixed(3)}]</span>
+                            </div>
+                        ` : ''}
+                        ${error.confidence_ci && error.confidence_ci.lower !== null ? `
+                            <div class="metric">
+                                <span class="metric-label">Confidence CI (probability space)</span>
+                                <span class="metric-value">[${error.confidence_ci.lower.toFixed(3)}, ${error.confidence_ci.upper.toFixed(3)}]</span>
+                            </div>
+                        ` : ''}
                     </div>
                 ` : ''}
             </div>
@@ -440,12 +448,20 @@ function showCategoryErrors(category, categoryName) {
                             <span class="metric-value">Chars ${error.span.start}-${error.span.end}</span>
                         </div>` : ''}
                     </div>
-                    ${error.severity_score_ci.lower !== null ? `
+                    ${(error.severity_score_ci && error.severity_score_ci.lower !== null) || (error.confidence_ci && error.confidence_ci.lower !== null) ? `
                         <div class="error-metrics" style="margin-top: 0.5rem;">
-                            <div class="metric">
-                                <span class="metric-label">Severity CI</span>
-                                <span class="metric-value">[${error.severity_score_ci.lower.toFixed(3)}, ${error.severity_score_ci.upper.toFixed(3)}]</span>
-                            </div>
+                            ${error.severity_score_ci && error.severity_score_ci.lower !== null ? `
+                                <div class="metric">
+                                    <span class="metric-label">Severity CI (severity space)</span>
+                                    <span class="metric-value">[${error.severity_score_ci.lower.toFixed(3)}, ${error.severity_score_ci.upper.toFixed(3)}]</span>
+                                </div>
+                            ` : ''}
+                            ${error.confidence_ci && error.confidence_ci.lower !== null ? `
+                                <div class="metric">
+                                    <span class="metric-label">Confidence CI (probability space)</span>
+                                    <span class="metric-value">[${error.confidence_ci.lower.toFixed(3)}, ${error.confidence_ci.upper.toFixed(3)}]</span>
+                                </div>
+                            ` : ''}
                         </div>
                     ` : ''}
                 </div>
