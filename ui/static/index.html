@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrustScore - LLM Response Evaluation</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔒 TrustScore</h1>
+            <p class="subtitle">Evaluate Trustworthiness, Bias, and Explainability in LLM Responses</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Input Section -->
+            <section class="input-section">
+                <h2>Analyze Response</h2>
+                <div class="form-group">
+                    <label for="prompt">Prompt:</label>
+                    <textarea id="prompt" placeholder="Enter the prompt given to the LLM..." rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="response">LLM Response:</label>
+                    <textarea id="response" placeholder="Enter the LLM's response..." rows="6"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="model">Model (optional):</label>
+                    <input type="text" id="model" placeholder="e.g., GPT-4o, Llama-3.1-8B" value="GPT-4o">
+                </div>
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="useMock">
+                        Use Mock Mode (for testing without API calls)
+                    </label>
+                </div>
+                <button id="analyzeBtn" class="btn-primary">Analyze Response</button>
+            </section>
+
+            <!-- Results Section -->
+            <section id="resultsSection" class="results-section hidden">
+                <h2>Analysis Results</h2>
+                
+                <!-- TrustScore Summary -->
+                <div class="score-card">
+                    <div class="score-header">
+                        <h3>Overall TrustScore</h3>
+                        <div class="score-value" id="trustScore">-</div>
+                    </div>
+                    <div class="score-bar-container">
+                        <div class="score-bar" id="trustScoreBar"></div>
+                    </div>
+                    <div class="confidence-interval" id="trustScoreCI"></div>
+                </div>
+
+                <!-- Category Scores -->
+                <div class="categories-grid">
+                    <div class="category-card" data-category="trustworthiness">
+                        <div class="category-header">
+                            <span class="category-icon">✓</span>
+                            <h4>Trustworthiness</h4>
+                        </div>
+                        <div class="category-score" id="scoreT">-</div>
+                        <div class="category-confidence" id="confT"></div>
+                    </div>
+                    <div class="category-card" data-category="explainability">
+                        <div class="category-header">
+                            <span class="category-icon">📖</span>
+                            <h4>Explainability</h4>
+                        </div>
+                        <div class="category-score" id="scoreE">-</div>
+                        <div class="category-confidence" id="confE"></div>
+                    </div>
+                    <div class="category-card" data-category="bias">
+                        <div class="category-header">
+                            <span class="category-icon">⚖️</span>
+                            <h4>Bias</h4>
+                        </div>
+                        <div class="category-score" id="scoreB">-</div>
+                        <div class="category-confidence" id="confB"></div>
+                    </div>
+                </div>
+
+                <!-- Response with Highlights -->
+                <div class="response-viewer">
+                    <h3>Response with Error Highlights</h3>
+                    <div class="response-text" id="highlightedResponse"></div>
+                </div>
+
+                <!-- Errors List -->
+                <div class="errors-section">
+                    <h3>Detected Errors (<span id="errorCount">0</span>)</h3>
+                    <div id="errorsList" class="errors-list"></div>
+                </div>
+            </section>
+
+            <!-- Loading Indicator -->
+            <div id="loadingIndicator" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Analyzing response...</p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="error-message hidden"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+
