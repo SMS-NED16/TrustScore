@@ -323,7 +323,17 @@ function displayHighlightedResponse(response, errors) {
 
 // Build tooltip content for error
 function buildTooltipContent(error) {
-    let html = `<div class="tooltip-explanation">${escapeHtml(error.explanation)}</div>`;
+    // Add error type and subtype at the top
+    const errorTypeLabel = error.type === 'T' ? 'Trustworthiness' : error.type === 'E' ? 'Explainability' : 'Bias';
+    const subtypeLabel = error.subtype.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    
+    let html = `<div class="tooltip-header">
+        <strong>Error Type:</strong> ${errorTypeLabel} (${error.type})
+        <br>
+        <strong>Subtype:</strong> ${escapeHtml(subtypeLabel)}
+    </div>`;
+    
+    html += `<div class="tooltip-explanation">${escapeHtml(error.explanation)}</div>`;
     
     // Add judge analyses if available
     if (error.judge_analyses && Object.keys(error.judge_analyses).length > 0) {

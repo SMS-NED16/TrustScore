@@ -447,6 +447,19 @@ header h1 {
     display: block;
 }
 
+.tooltip-header {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.tooltip-header strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
 .tooltip-explanation {
     font-weight: 600;
     margin-bottom: 0.75rem;
