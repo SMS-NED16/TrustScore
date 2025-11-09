@@ -405,6 +405,29 @@ class MockSpanTagger(SpanTagger):
                     span_id += 1
                     break  # Only detect one explainability error per response
         
+        # Detect Minor Trustworthiness errors (spelling/typos) - these should get low severity scores
+        minor_error_patterns = [
+            ("artificial inteligence", "spelling", "Minor spelling error: 'inteligence' should be 'intelligence'."),
+            ("algoritms", "spelling", "Minor spelling error: 'algoritms' should be 'algorithms'."),
+            ("datasets", "spelling", "Minor spelling error: 'datasets' should be 'datasets'.")  # This won't match, but pattern for future
+        ]
+        
+        for pattern, subtype, explanation in minor_error_patterns:
+            if pattern.lower() in response_text.lower():
+                start = response_text.lower().find(pattern.lower())
+                if start >= 0:
+                    # For spelling errors, just highlight the misspelled word
+                    end = start + len(pattern)
+                    spans[str(span_id)] = {
+                        "start": start,
+                        "end": end,
+                        "type": "T",
+                        "subtype": subtype,
+                        "explanation": explanation
+                    }
+                    span_id += 1
+                    break  # Only detect one minor error per response
+        
         # If no errors found, return empty spans
         if not spans:
             return SpansLevelTags()

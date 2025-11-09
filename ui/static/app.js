@@ -226,8 +226,12 @@ function displayResults(result) {
     const trustScore = result.summary.trust_score;
     trustScoreEl.textContent = trustScore.toFixed(3);
     
-    // Calculate percentage for bar (assuming score is 0-10, lower is better)
-    const qualityPercent = Math.max(0, Math.min(100, (10 - trustScore) / 10 * 100));
+    // Calculate percentage for bar: represents quality percentage
+    // Lower trust score = higher quality = more bar filled
+    // Formula: (max_score - trustScore) / max_score * 100
+    // Using max_score of 10 as a reasonable upper bound for severity scores
+    const maxScore = 10;
+    const qualityPercent = Math.max(0, Math.min(100, (maxScore - trustScore) / maxScore * 100));
     trustScoreBar.style.width = `${qualityPercent}%`;
     
     // Display severity and confidence ratings
@@ -387,6 +391,10 @@ function displayErrors(errors) {
                         <span class="metric-label">Location</span>
                         <span class="metric-value">Chars ${error.span.start}-${error.span.end}</span>
                     </div>` : ''}
+                    ${error.span && error.span.text ? `<div class="metric">
+                        <span class="metric-label">Span Text</span>
+                        <span class="metric-value" style="font-style: italic; max-width: 300px; overflow-wrap: break-word;">"${escapeHtml(error.span.text)}"</span>
+                    </div>` : ''}
                 </div>
                 ${(error.severity_score_ci && error.severity_score_ci.lower !== null) || (error.confidence_ci && error.confidence_ci.lower !== null) ? `
                     <div class="error-metrics" style="margin-top: 0.5rem;">
@@ -446,6 +454,10 @@ function showCategoryErrors(category, categoryName) {
                         ${error.span ? `<div class="metric">
                             <span class="metric-label">Location</span>
                             <span class="metric-value">Chars ${error.span.start}-${error.span.end}</span>
+                        </div>` : ''}
+                        ${error.span && error.span.text ? `<div class="metric">
+                            <span class="metric-label">Span Text</span>
+                            <span class="metric-value" style="font-style: italic; max-width: 300px; overflow-wrap: break-word;">"${escapeHtml(error.span.text)}"</span>
                         </div>` : ''}
                     </div>
                     ${(error.severity_score_ci && error.severity_score_ci.lower !== null) || (error.confidence_ci && error.confidence_ci.lower !== null) ? `
