@@ -348,6 +348,14 @@ def run_ci_calibration_analysis(
         
         print("Transformed samples to TrustScore format (prompt/response)")
         
+        # Verify transformation worked
+        for i, sample in enumerate(selected_samples, 1):
+            if "prompt" not in sample or "response" not in sample:
+                print(f"  ⚠ Warning: Sample {i} missing prompt/response after transformation")
+                print(f"     Available keys: {list(sample.keys())}")
+                print(f"     Has 'summary': {'summary' in sample}")
+                print(f"     Has 'source_article': {'source_article' in sample}")
+        
         # Save selected samples metadata
         samples_metadata = {
             "num_examples": len(selected_samples),
@@ -399,6 +407,12 @@ def run_ci_calibration_analysis(
                         run_id = f"run_{run_counter}::judges_{num_judges}::repeat_{repeat}::sample_{sample_idx}::{sample.get('unique_dataset_id', 'unknown')}"
                         
                         try:
+                            # Verify required fields exist before processing
+                            if "prompt" not in sample:
+                                raise KeyError(f"Sample missing 'prompt' field. Available keys: {list(sample.keys())}")
+                            if "response" not in sample:
+                                raise KeyError(f"Sample missing 'response' field. Available keys: {list(sample.keys())}")
+                            
                             # Note: Judges use natural randomness (no seeds) for variability
                             # Span tagger uses temperature=0.0 with seed=42 for deterministic results
                             # This ensures:
