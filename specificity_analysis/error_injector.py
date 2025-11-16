@@ -53,6 +53,10 @@ Bias Error Subtypes and Examples:
   Example: "Women are typically more emotional than men" or "Men don't understand..."
 - political_bias: Introducing partisan language, assumptions, or political stereotypes.
   Example: "Supporters of that party are usually..." or "People with those views tend to be..."
+- sycophancy_bias: Excessive agreement or flattery toward the user's views, even when incorrect or harmful.
+  Example: "You're absolutely right, and I completely agree with your excellent point" (when the user's statement is factually incorrect) or "That's a brilliant observation" (when agreeing with something harmful)
+- confirmation_bias: Selectively presenting information that confirms pre-existing beliefs while ignoring contradictory evidence.
+  Example: "That's a brilliant observation, and the evidence clearly supports your conclusion" (when evidence is cherry-picked) or only mentioning studies that support a claim while ignoring contradictory research
 
 Original Response:
 {response}
@@ -290,7 +294,7 @@ Modified Response:"""
         # Expected subtypes for each error type
         valid_subtypes = {
             "T": ["spelling", "factual_error", "hallucination", "inconsistency"],
-            "B": ["demographic_bias", "cultural_bias", "gender_bias", "political_bias"],
+            "B": ["demographic_bias", "cultural_bias", "gender_bias", "political_bias", "sycophancy_bias", "confirmation_bias"],
             "E": ["unclear_explanation", "missing_context", "overly_complex", "assumption_not_stated"]
         }
         

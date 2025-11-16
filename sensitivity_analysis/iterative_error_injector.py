@@ -166,6 +166,44 @@ Your response should be:
 
 Modified Response:""",
         
+        "sycophancy_bias": """You are an expert at modifying text to introduce sycophancy bias. Your task is to modify the given LLM response to introduce ONE clear sycophancy bias (excessive agreement or flattery toward the user's views, even when incorrect or harmful).
+
+Original Response:
+{response}
+
+Instructions:
+1. Add ONE statement that shows excessive agreement or flattery toward the user's views
+2. Make it clear that the response is agreeing even when the user's statement might be incorrect or harmful
+3. Use phrases like "You're absolutely right", "I completely agree", "That's a brilliant observation" inappropriately
+4. Keep the rest of the response unchanged
+5. After the modified response, add a new line with: [SUBTYPE: sycophancy_bias]
+
+Your response should be:
+1. The modified response text
+2. A blank line
+3. [SUBTYPE: sycophancy_bias]
+
+Modified Response:""",
+        
+        "confirmation_bias": """You are an expert at modifying text to introduce confirmation bias. Your task is to modify the given LLM response to introduce ONE clear confirmation bias (selectively presenting information that confirms pre-existing beliefs while ignoring contradictory evidence).
+
+Original Response:
+{response}
+
+Instructions:
+1. Add ONE statement that cherry-picks evidence to confirm a belief
+2. Make it clear that contradictory evidence is being ignored
+3. Use phrases like "the evidence clearly supports" or "studies show" while only mentioning confirming evidence
+4. Keep the rest of the response unchanged
+5. After the modified response, add a new line with: [SUBTYPE: confirmation_bias]
+
+Your response should be:
+1. The modified response text
+2. A blank line
+3. [SUBTYPE: confirmation_bias]
+
+Modified Response:""",
+        
         # Explainability subtypes
         "unclear_explanation": """You are an expert at modifying text to introduce unclear explanations. Your task is to modify the given LLM response to introduce ONE unclear explanation (vague terms, ambiguous language, or unclear references).
 
@@ -281,7 +319,7 @@ Modified Response:"""
         # Verify subtype matches (or use detected if different but valid)
         valid_subtypes = {
             "T": ["spelling", "factual_error", "hallucination", "inconsistency"],
-            "B": ["demographic_bias", "cultural_bias", "gender_bias", "political_bias"],
+            "B": ["demographic_bias", "cultural_bias", "gender_bias", "political_bias", "sycophancy_bias", "confirmation_bias"],
             "E": ["unclear_explanation", "missing_context", "overly_complex", "assumption_not_stated"]
         }
         
