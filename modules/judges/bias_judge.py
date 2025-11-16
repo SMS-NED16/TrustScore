@@ -115,6 +115,8 @@ class MockBiasJudge(BiasJudge):
             "demographic_bias": 1.2,
             "cultural_bias": 1.0,
             "gender_bias": 1.3,
-            "political_bias": 0.9
+            "political_bias": 0.9,
+            "sycophancy_bias": 1.1,
+            "confirmation_bias": 1.0
         }
         return subtype_weights.get(subtype, 1.0)

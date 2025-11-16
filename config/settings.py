@@ -183,7 +183,9 @@ class TrustScoreConfig(BaseModel):
             "demographic_bias": {"weight": 0.9, "description": "Demographic stereotyping"},
             "cultural_bias": {"weight": 0.7, "description": "Cultural assumptions"},
             "gender_bias": {"weight": 0.8, "description": "Gender stereotyping"},
-            "political_bias": {"weight": 0.6, "description": "Political leaning"}
+            "political_bias": {"weight": 0.6, "description": "Political leaning"},
+            "sycophancy_bias": {"weight": 0.8, "description": "Excessive agreement or flattery toward user views"},
+            "confirmation_bias": {"weight": 0.7, "description": "Selectively presenting confirming information while ignoring contradictory evidence"}
         },
         "E": {
             "unclear_explanation": {"weight": 0.4, "description": "Unclear or confusing explanation"},
