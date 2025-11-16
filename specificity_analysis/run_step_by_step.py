@@ -54,6 +54,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DRIVE_MOUNT_PATH = "/content/drive"
 DRIVE_RESULTS_PATH = "/content/drive/MyDrive/TrustScore_Results"
 
+# Configuration
+MAX_SAMPLES = 100  # Change this to configure sample count
+
 def mount_google_drive():
     """Mount Google Drive in Colab."""
     if IN_COLAB:
@@ -156,266 +159,265 @@ def create_vllm_error_injector():
     )
     return injector
 
-if __name__ == "__main__":
-    # Setup output directory
-    output_dir = "results/specificity_analysis"
-    os.makedirs(output_dir, exist_ok=True)
+# Setup output directory
+output_dir = "results/specificity_analysis"
+os.makedirs(output_dir, exist_ok=True)
 
-    # Initialize dual logging (console + file)
+# Initialize dual logging (console + file)
+logger = None
+try:
+    logger = initialize_logging(output_dir, "execution.log")
+    print(f"Logging initialized - output will be saved to: {os.path.join(output_dir, 'execution.log')}")
+except Exception as e:
+    print(f"Warning: Could not initialize file logging: {e}")
+    print("Continuing with console-only output...")
     logger = None
-    try:
-        logger = initialize_logging(output_dir, "execution.log")
-        print(f"Logging initialized - output will be saved to: {os.path.join(output_dir, 'execution.log')}")
-    except Exception as e:
-        print(f"Warning: Could not initialize file logging: {e}")
-        print("Continuing with console-only output...")
-        logger = None
 
-    # Mount Google Drive if in Colab (user can do this manually if needed)
-    # Don't auto-mount to avoid blocking
-    drive_mounted = False
-    if IN_COLAB and os.path.exists(DRIVE_MOUNT_PATH):
-        drive_mounted = True
-    elif IN_COLAB:
-        print("⚠ Google Drive not mounted. Run mount_google_drive() manually if needed.")
+# Mount Google Drive if in Colab (user can do this manually if needed)
+# Don't auto-mount to avoid blocking
+drive_mounted = False
+if IN_COLAB and os.path.exists(DRIVE_MOUNT_PATH):
+    drive_mounted = True
+elif IN_COLAB:
+    print("⚠ Google Drive not mounted. Run mount_google_drive() manually if needed.")
 
-    print("=" * 70)
-    print("SPECIFICITY ANALYSIS - STEP BY STEP")
-    print("=" * 70)
-    print(f"Random seed: {RANDOM_SEED}")
-    print(f"Temperature: {TEMPERATURE} (deterministic)")
-    print(f"Model: {VLLM_MODEL}")
-    print(f"Device: {DEVICE}")
-    if IN_COLAB:
-        print(f"Running in Colab: {IN_COLAB}")
-        print(f"Google Drive mounted: {drive_mounted}")
-    print("=" * 70)
+print("=" * 70)
+print("SPECIFICITY ANALYSIS - STEP BY STEP")
+print("=" * 70)
+print(f"Random seed: {RANDOM_SEED}")
+print(f"Temperature: {TEMPERATURE} (deterministic)")
+print(f"Model: {VLLM_MODEL}")
+print(f"Device: {DEVICE}")
+if IN_COLAB:
+    print(f"Running in Colab: {IN_COLAB}")
+    print(f"Google Drive mounted: {drive_mounted}")
+print("=" * 70)
 
-    # ============================================================================
-    # STEP 0: Sample 10 observations from SummEval
-    # ============================================================================
-    print("\n" + "=" * 70)
-    print("STEP 0: Sampling Observations from SummEval")
-    print("=" * 70)
+# ============================================================================
+# STEP 0: Sample observations from SummEval
+# ============================================================================
+print("\n" + "=" * 70)
+print("STEP 0: Sampling Observations from SummEval")
+print("=" * 70)
 
-    samples = load_and_sample_dataset(
-        dataset_name="summeval",
-        max_samples=10,
-        random_seed=RANDOM_SEED
-    )
+samples = load_and_sample_dataset(
+    dataset_name="summeval",
+    max_samples=MAX_SAMPLES,
+    random_seed=RANDOM_SEED
+)
 
-    print(f"\n✓ Loaded {len(samples)} samples")
+print(f"\n✓ Loaded {len(samples)} samples")
 
-    # Save sampled dataset
-    samples_path = os.path.join(output_dir, "sampled_dataset.jsonl")
-    save_samples(samples, samples_path)
-    save_to_drive(samples_path)
+# Save sampled dataset
+samples_path = os.path.join(output_dir, "sampled_dataset.jsonl")
+save_samples(samples, samples_path)
+save_to_drive(samples_path)
 
-    # Inspect first sample
-    if samples:
-        print("\nFirst sample preview:")
-        print(f"  Sample ID (article): {samples[0]['sample_id']}")
-        print(f"  Unique Dataset ID: {samples[0].get('unique_dataset_id', 'N/A')}")
-        print(f"  Model: {samples[0]['model']}")
-        print(f"  Prompt length: {len(samples[0]['prompt'])} chars")
-        print(f"  Response length: {len(samples[0]['response'])} chars")
-        print(f"  Response preview: {samples[0]['response'][:200]}...")
+# Inspect first sample
+if samples:
+    print("\nFirst sample preview:")
+    print(f"  Sample ID (article): {samples[0]['sample_id']}")
+    print(f"  Unique Dataset ID: {samples[0].get('unique_dataset_id', 'N/A')}")
+    print(f"  Model: {samples[0]['model']}")
+    print(f"  Prompt length: {len(samples[0]['prompt'])} chars")
+    print(f"  Response length: {len(samples[0]['response'])} chars")
+    print(f"  Response preview: {samples[0]['response'][:200]}...")
 
-    # ============================================================================
-    # STEP 1: Run Error Injector for T/E/B/Placebo
-    # ============================================================================
-    print("\n" + "=" * 70)
-    print("STEP 1: Error Injection with VLLM")
-    print("=" * 70)
-    print(f"Model: {VLLM_MODEL}")
-    print(f"Temperature: {TEMPERATURE}")
-    print("=" * 70)
+# ============================================================================
+# STEP 1: Run Error Injector for T/E/B/Placebo
+# ============================================================================
+print("\n" + "=" * 70)
+print("STEP 1: Error Injection with VLLM")
+print("=" * 70)
+print(f"Model: {VLLM_MODEL}")
+print(f"Temperature: {TEMPERATURE}")
+print("=" * 70)
 
-    # Initialize error injector with VLLM
-    try:
-        injector = create_vllm_error_injector()
-        print("✓ Error injector initialized with VLLM")
-    except Exception as e:
-        print(f"⚠ Could not initialize VLLM error injector: {e}")
-        print("This might require HuggingFace authentication.")
-        print("For now, creating placeholder perturbed datasets...")
-        injector = None
+# Initialize error injector with VLLM
+try:
+    injector = create_vllm_error_injector()
+    print("✓ Error injector initialized with VLLM")
+except Exception as e:
+    print(f"⚠ Could not initialize VLLM error injector: {e}")
+    print("This might require HuggingFace authentication.")
+    print("For now, creating placeholder perturbed datasets...")
+    injector = None
 
-    error_types = ["T", "B", "E", "PLACEBO"]
-    perturbed_datasets = {}
+error_types = ["T", "B", "E", "PLACEBO"]
+perturbed_datasets = {}
 
-    for error_type in error_types:
-        print(f"\n  Creating {error_type}_perturbed dataset...")
-        perturbed_path = os.path.join(output_dir, f"{error_type}_perturbed.jsonl")
-        
-        if injector:
-            # Use real error injector with VLLM
-            perturbed_samples = injector.create_perturbed_dataset(
-                samples=samples,
-                error_type=error_type
-            )
-        else:
-            # Create placeholder (for testing structure)
-            perturbed_samples = []
-            for sample in tqdm(samples, desc=f"Creating {error_type}_perturbed (placeholder)", unit="sample"):
-                perturbed = sample.copy()
-                perturbed["error_type_injected"] = error_type
-                # Ensure unique_dataset_id is preserved
-                if "unique_dataset_id" not in perturbed:
-                    perturbed["unique_dataset_id"] = f"{perturbed.get('sample_id', 'unknown')}-{perturbed.get('model', 'unknown')}"
-                if error_type == "PLACEBO":
-                    perturbed["response"] = sample["response"] + " \n"
-                    perturbed["error_subtype_injected"] = "placebo"
-                    perturbed["change_description"] = "Added trailing whitespace (format-only change, placeholder mode)"
-                else:
-                    perturbed["response"] = sample["response"] + f" [MOCK_{error_type}_ERROR]"
-                    # Assign a default subtype based on error type
-                    default_subtypes = {
-                        "T": "factual_error",
-                        "B": "demographic_bias",
-                        "E": "unclear_explanation"
-                    }
-                    perturbed["error_subtype_injected"] = default_subtypes.get(error_type, "unknown")
-                    perturbed["change_description"] = f"Added mock error marker [MOCK_{error_type}_ERROR] (placeholder mode)"
-                perturbed_samples.append(perturbed)
-        
-        # Save perturbed dataset
-        with open(perturbed_path, 'w', encoding='utf-8') as f:
-            for sample in perturbed_samples:
-                f.write(json.dumps(sample, ensure_ascii=False) + '\n')
-        
-        save_to_drive(perturbed_path)
-        perturbed_datasets[error_type] = perturbed_samples
-        print(f"  ✓ Saved {len(perturbed_samples)} samples to {perturbed_path}")
-        
-        # Inspect first perturbed sample
-        if perturbed_samples:
-            orig = perturbed_samples[0].get('original_response', 'N/A')
-            pert = perturbed_samples[0]['response']
-            print(f"    Original: {orig[:80]}..." if len(orig) > 80 else f"    Original: {orig}")
-            print(f"    Perturbed: {pert[:80]}..." if len(pert) > 80 else f"    Perturbed: {pert}")
-            print(f"    Changed: {orig != pert}")
+for error_type in error_types:
+    print(f"\n  Creating {error_type}_perturbed dataset...")
+    perturbed_path = os.path.join(output_dir, f"{error_type}_perturbed.jsonl")
+    
+    if injector:
+        # Use real error injector with VLLM
+        perturbed_samples = injector.create_perturbed_dataset(
+            samples=samples,
+            error_type=error_type
+        )
+    else:
+        # Create placeholder (for testing structure)
+        perturbed_samples = []
+        for sample in tqdm(samples, desc=f"Creating {error_type}_perturbed (placeholder)", unit="sample"):
+            perturbed = sample.copy()
+            perturbed["error_type_injected"] = error_type
+            # Ensure unique_dataset_id is preserved
+            if "unique_dataset_id" not in perturbed:
+                perturbed["unique_dataset_id"] = f"{perturbed.get('sample_id', 'unknown')}-{perturbed.get('model', 'unknown')}"
+            if error_type == "PLACEBO":
+                perturbed["response"] = sample["response"] + " \n"
+                perturbed["error_subtype_injected"] = "placebo"
+                perturbed["change_description"] = "Added trailing whitespace (format-only change, placeholder mode)"
+            else:
+                perturbed["response"] = sample["response"] + f" [MOCK_{error_type}_ERROR]"
+                # Assign a default subtype based on error type
+                default_subtypes = {
+                    "T": "factual_error",
+                    "B": "demographic_bias",
+                    "E": "unclear_explanation"
+                }
+                perturbed["error_subtype_injected"] = default_subtypes.get(error_type, "unknown")
+                perturbed["change_description"] = f"Added mock error marker [MOCK_{error_type}_ERROR] (placeholder mode)"
+            perturbed_samples.append(perturbed)
+    
+    # Save perturbed dataset
+    with open(perturbed_path, 'w', encoding='utf-8') as f:
+        for sample in perturbed_samples:
+            f.write(json.dumps(sample, ensure_ascii=False) + '\n')
+    
+    save_to_drive(perturbed_path)
+    perturbed_datasets[error_type] = perturbed_samples
+    print(f"  ✓ Saved {len(perturbed_samples)} samples to {perturbed_path}")
+    
+    # Inspect first perturbed sample
+    if perturbed_samples:
+        orig = perturbed_samples[0].get('original_response', 'N/A')
+        pert = perturbed_samples[0]['response']
+        print(f"    Original: {orig[:80]}..." if len(orig) > 80 else f"    Original: {orig}")
+        print(f"    Perturbed: {pert[:80]}..." if len(pert) > 80 else f"    Perturbed: {pert}")
+        print(f"    Changed: {orig != pert}")
 
-    # ============================================================================
-    # STEP 2: Run TrustScore on Baseline (Original Responses)
-    # ============================================================================
-    print("\n" + "=" * 70)
-    print("STEP 2: Baseline TrustScore Inference with VLLM")
-    print("=" * 70)
-    print(f"Model: {VLLM_MODEL}")
-    print(f"Temperature: {TEMPERATURE}")
-    print("=" * 70)
+# ============================================================================
+# STEP 2: Run TrustScore on Baseline (Original Responses)
+# ============================================================================
+print("\n" + "=" * 70)
+print("STEP 2: Baseline TrustScore Inference with VLLM")
+print("=" * 70)
+print(f"Model: {VLLM_MODEL}")
+print(f"Temperature: {TEMPERATURE}")
+print("=" * 70)
 
-    baseline_path = os.path.join(output_dir, "baseline_results.jsonl")
+baseline_path = os.path.join(output_dir, "baseline_results.jsonl")
 
-    # Create VLLM config for pipeline
-    vllm_config = create_vllm_config_for_pipeline()
+# Create VLLM config for pipeline
+vllm_config = create_vllm_config_for_pipeline()
 
-    # Run baseline inference with VLLM
-    baseline_results = run_baseline_inference(
-        samples=samples,
-        output_path=baseline_path,
+# Run baseline inference with VLLM
+baseline_results = run_baseline_inference(
+    samples=samples,
+    output_path=baseline_path,
+    use_mock=False,  # Use real VLLM
+    config=vllm_config
+)
+
+save_to_drive(baseline_path)
+print(f"\n✓ Baseline results saved to {baseline_path}")
+
+# Inspect first baseline result
+if baseline_results and "error" not in baseline_results[0]:
+    print(f"\n  First baseline result:")
+    print(f"    TrustScore: {baseline_results[0].get('trust_score', 'N/A'):.3f}")
+    print(f"    T: {baseline_results[0].get('agg_score_T', 'N/A'):.3f}")
+    print(f"    E: {baseline_results[0].get('agg_score_E', 'N/A'):.3f}")
+    print(f"    B: {baseline_results[0].get('agg_score_B', 'N/A'):.3f}")
+    print(f"    Errors found: {baseline_results[0].get('num_errors', 0)}")
+
+# ============================================================================
+# STEP 3: Run TrustScore on Perturbed Datasets (One by One)
+# ============================================================================
+print("\n" + "=" * 70)
+print("STEP 3: TrustScore on Perturbed Datasets with VLLM")
+print("=" * 70)
+
+perturbed_results_paths = {}
+
+for error_type in error_types:
+    print(f"\n  Processing {error_type}_perturbed...")
+    perturbed_path = os.path.join(output_dir, f"{error_type}_perturbed_results.jsonl")
+    perturbed_results_paths[error_type] = perturbed_path
+    
+    results = run_perturbed_inference(
+        perturbed_samples=perturbed_datasets[error_type],
+        output_path=perturbed_path,
+        error_type=error_type,
         use_mock=False,  # Use real VLLM
         config=vllm_config
     )
+    
+    save_to_drive(perturbed_path)
+    print(f"  ✓ {error_type}_perturbed results saved to {perturbed_path}")
 
-    save_to_drive(baseline_path)
-    print(f"\n✓ Baseline results saved to {baseline_path}")
+# ============================================================================
+# STEP 4: Analysis (Run when ready)
+# ============================================================================
+print("\n" + "=" * 70)
+print("STEP 4: Score Comparison Analysis")
+print("=" * 70)
+print("\nRunning score comparison analysis...")
+print("=" * 70)
 
-    # Inspect first baseline result
-    if baseline_results and "error" not in baseline_results[0]:
-        print(f"\n  First baseline result:")
-        print(f"    TrustScore: {baseline_results[0].get('trust_score', 'N/A'):.3f}")
-        print(f"    T: {baseline_results[0].get('agg_score_T', 'N/A'):.3f}")
-        print(f"    E: {baseline_results[0].get('agg_score_E', 'N/A'):.3f}")
-        print(f"    B: {baseline_results[0].get('agg_score_B', 'N/A'):.3f}")
-        print(f"    Errors found: {baseline_results[0].get('num_errors', 0)}")
+comparisons = {}
 
-    # ============================================================================
-    # STEP 3: Run TrustScore on Perturbed Datasets (One by One)
-    # ============================================================================
-    print("\n" + "=" * 70)
-    print("STEP 3: TrustScore on Perturbed Datasets with VLLM")
-    print("=" * 70)
-
-    perturbed_results_paths = {}
-
-    for error_type in error_types:
-        print(f"\n  Processing {error_type}_perturbed...")
-        perturbed_path = os.path.join(output_dir, f"{error_type}_perturbed_results.jsonl")
-        perturbed_results_paths[error_type] = perturbed_path
-        
-        results = run_perturbed_inference(
-            perturbed_samples=perturbed_datasets[error_type],
-            output_path=perturbed_path,
-            error_type=error_type,
-            use_mock=False,  # Use real VLLM
-            config=vllm_config
-        )
-        
-        save_to_drive(perturbed_path)
-        print(f"  ✓ {error_type}_perturbed results saved to {perturbed_path}")
-
-    # ============================================================================
-    # STEP 4: Analysis (Run when ready)
-    # ============================================================================
-    print("\n" + "=" * 70)
-    print("STEP 4: Score Comparison Analysis")
-    print("=" * 70)
-    print("\nRunning score comparison analysis...")
-    print("=" * 70)
-
-    comparisons = {}
-
-    for error_type in tqdm(error_types, desc="Comparing scores", unit="error_type"):
-        print(f"\n  Comparing {error_type}_perturbed with baseline...")
-        try:
-            comparison = compare_scores(
-                baseline_results_path=baseline_path,
-                perturbed_results_path=perturbed_results_paths[error_type],
-                error_type=error_type
-            )
-            comparisons[error_type] = comparison
-            print(f"  ✓ {error_type} comparison complete")
-        except Exception as e:
-            print(f"  ✗ Error comparing {error_type}: {str(e)}")
-            comparisons[error_type] = {"error": str(e)}
-
-    # Generate final report
-    if comparisons:
-        report_path = os.path.join(output_dir, "specificity_report.json")
-        generate_report(comparisons, report_path)
-        save_to_drive(report_path)
-        print(f"\n✓ Final report saved to {report_path}")
-
-    print("\n" + "=" * 70)
-    print("PIPELINE COMPLETE!")
-    print("=" * 70)
-    print(f"\nAll results saved in: {output_dir}")
-    if IN_COLAB:
-        print(f"Results also saved to Google Drive: {DRIVE_RESULTS_PATH}")
-    print("\nFiles created:")
-    print(f"  - sampled_dataset.jsonl")
-    print(f"  - baseline_results.jsonl")
-    for error_type in error_types:
-        print(f"  - {error_type}_perturbed.jsonl")
-        print(f"  - {error_type}_perturbed_results.jsonl")
-    print(f"\nConfigured with:")
-    print(f"  - Random seed: {RANDOM_SEED}")
-    print(f"  - Temperature: {TEMPERATURE} (deterministic)")
-    print(f"  - Model: {VLLM_MODEL}")
-    print(f"  - Device: {DEVICE}")
-
-    # Cleanup logging
+for error_type in tqdm(error_types, desc="Comparing scores", unit="error_type"):
+    print(f"\n  Comparing {error_type}_perturbed with baseline...")
     try:
-        print(f"\n✓ Execution complete. Log file saved to: {os.path.join(output_dir, 'execution.log')}")
-    except:
-        pass
-    finally:
-        if logger is not None:
-            cleanup_logging(logger)
-            
-            # Save log file to Google Drive (after file is closed)
-            log_file_path = os.path.join(output_dir, "execution.log")
-            if os.path.exists(log_file_path):
-                save_to_drive(log_file_path)
+        comparison = compare_scores(
+            baseline_results_path=baseline_path,
+            perturbed_results_path=perturbed_results_paths[error_type],
+            error_type=error_type
+        )
+        comparisons[error_type] = comparison
+        print(f"  ✓ {error_type} comparison complete")
+    except Exception as e:
+        print(f"  ✗ Error comparing {error_type}: {str(e)}")
+        comparisons[error_type] = {"error": str(e)}
+
+# Generate final report
+if comparisons:
+    report_path = os.path.join(output_dir, "specificity_report.json")
+    generate_report(comparisons, report_path)
+    save_to_drive(report_path)
+    print(f"\n✓ Final report saved to {report_path}")
+
+print("\n" + "=" * 70)
+print("PIPELINE COMPLETE!")
+print("=" * 70)
+print(f"\nAll results saved in: {output_dir}")
+if IN_COLAB:
+    print(f"Results also saved to Google Drive: {DRIVE_RESULTS_PATH}")
+print("\nFiles created:")
+print(f"  - sampled_dataset.jsonl")
+print(f"  - baseline_results.jsonl")
+for error_type in error_types:
+    print(f"  - {error_type}_perturbed.jsonl")
+    print(f"  - {error_type}_perturbed_results.jsonl")
+print(f"\nConfigured with:")
+print(f"  - Random seed: {RANDOM_SEED}")
+print(f"  - Temperature: {TEMPERATURE} (deterministic)")
+print(f"  - Model: {VLLM_MODEL}")
+print(f"  - Device: {DEVICE}")
+
+# Cleanup logging
+try:
+    print(f"\n✓ Execution complete. Log file saved to: {os.path.join(output_dir, 'execution.log')}")
+except:
+    pass
+finally:
+    if logger is not None:
+        cleanup_logging(logger)
+        
+        # Save log file to Google Drive (after file is closed)
+        log_file_path = os.path.join(output_dir, "execution.log")
+        if os.path.exists(log_file_path):
+            save_to_drive(log_file_path)
