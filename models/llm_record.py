@@ -259,13 +259,20 @@ class ErrorSummary(BaseModel):
 
 class AggregatedSummary(BaseModel):
     """Aggregated scores and confidence intervals"""
-    # Severity scores and CIs (in severity space)
-    agg_score_T: float = Field(..., description="Aggregated Trustworthiness score (sum of weighted severity scores)")
+    # Raw severity scores and CIs (in severity space) - for debugging
+    agg_score_T: float = Field(..., description="Aggregated Trustworthiness score (sum of weighted severity scores, raw)")
     agg_score_T_ci: ConfidenceInterval = Field(..., description="Trustworthiness severity score CI (in severity space)")
-    agg_score_E: float = Field(..., description="Aggregated Explainability score (sum of weighted severity scores)")
+    agg_score_E: float = Field(..., description="Aggregated Explainability score (sum of weighted severity scores, raw)")
     agg_score_E_ci: ConfidenceInterval = Field(..., description="Explainability severity score CI (in severity space)")
-    agg_score_B: float = Field(..., description="Aggregated Bias score (sum of weighted severity scores)")
+    agg_score_B: float = Field(..., description="Aggregated Bias score (sum of weighted severity scores, raw)")
     agg_score_B_ci: ConfidenceInterval = Field(..., description="Bias severity score CI (in severity space)")
+    # Quality scores and CIs (in quality space [0-100]) - for display
+    agg_quality_T: float = Field(..., ge=0, le=100, description="Trustworthiness quality score [0-100], higher = better")
+    agg_quality_T_ci: ConfidenceInterval = Field(..., description="Trustworthiness quality score CI (in quality space [0-100])")
+    agg_quality_E: float = Field(..., ge=0, le=100, description="Explainability quality score [0-100], higher = better")
+    agg_quality_E_ci: ConfidenceInterval = Field(..., description="Explainability quality score CI (in quality space [0-100])")
+    agg_quality_B: float = Field(..., ge=0, le=100, description="Bias quality score [0-100], higher = better")
+    agg_quality_B_ci: ConfidenceInterval = Field(..., description="Bias quality score CI (in quality space [0-100])")
     # Confidence levels and CIs (in probability space [0-1])
     agg_confidence_T: float = Field(..., ge=0, le=1, description="Mean confidence for Trustworthiness category (in probability space [0-1])")
     agg_confidence_T_ci: ConfidenceInterval = Field(..., description="Trustworthiness confidence CI (in probability space [0-1])")
@@ -273,9 +280,11 @@ class AggregatedSummary(BaseModel):
     agg_confidence_E_ci: ConfidenceInterval = Field(..., description="Explainability confidence CI (in probability space [0-1])")
     agg_confidence_B: float = Field(..., ge=0, le=1, description="Mean confidence for Bias category (in probability space [0-1])")
     agg_confidence_B_ci: ConfidenceInterval = Field(..., description="Bias confidence CI (in probability space [0-1])")
-    # Final trust score
-    trust_score: float = Field(..., description="Final TrustScore (weighted average of T/E/B severity scores, in severity space)")
+    # Final trust score - raw (severity space) and quality (quality space [0-100])
+    trust_score: float = Field(..., description="Final TrustScore (weighted average of T/E/B severity scores, raw severity space)")
     trust_score_ci: ConfidenceInterval = Field(..., description="TrustScore severity score CI (in severity space, with proper error propagation)")
+    trust_quality: float = Field(..., ge=0, le=100, description="Final TrustScore quality [0-100], higher = better")
+    trust_quality_ci: ConfidenceInterval = Field(..., description="TrustScore quality CI (in quality space [0-100], with proper error propagation)")
     trust_confidence: float = Field(..., ge=0, le=1, description="Mean confidence for TrustScore (weighted average of T/E/B confidences, in probability space [0-1])")
     trust_confidence_ci: ConfidenceInterval = Field(..., description="TrustScore confidence CI (in probability space [0-1], with proper error propagation)")
 

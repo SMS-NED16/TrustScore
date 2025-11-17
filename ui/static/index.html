@@ -100,9 +100,10 @@
                         <h3>Overall TrustScore</h3>
                         <div class="score-value" id="trustScore">-</div>
                     </div>
+                    <p class="score-note">100% = Best possible score, 0% = Worst possible score</p>
                     <div class="score-rating-container">
                         <div class="severity-rating" id="severityRating">
-                            <span class="rating-label">Severity:</span>
+                            <span class="rating-label">Quality:</span>
                             <span class="rating-badge" id="severityBadge">-</span>
                         </div>
                         <div class="confidence-rating" id="confidenceRating">
@@ -112,6 +113,10 @@
                     </div>
                     <div class="score-bar-container">
                         <div class="score-bar" id="trustScoreBar"></div>
+                    </div>
+                    <div class="score-bar-labels">
+                        <span class="score-bar-label-left">0% (Worst)</span>
+                        <span class="score-bar-label-right">100% (Best)</span>
                     </div>
                     <div class="confidence-interval" id="trustScoreCI"></div>
                 </div>

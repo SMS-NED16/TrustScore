@@ -84,25 +84,43 @@ def compare_scores(
             "error": "No matched pairs found"
         }
     
-    # Calculate score drops
-    t_drops = []
-    e_drops = []
-    b_drops = []
-    trust_score_drops = []
+    # Calculate quality decreases (for quality scores: higher = better, so decrease = baseline - perturbed)
+    # For raw severity scores: higher = worse, so drop = baseline - perturbed (positive when severity increases)
+    t_quality_decreases = []
+    e_quality_decreases = []
+    b_quality_decreases = []
+    trust_quality_decreases = []
+    # Also keep raw severity drops for backward compatibility
+    t_severity_drops = []
+    e_severity_drops = []
+    b_severity_drops = []
+    trust_severity_drops = []
     
     for pair in matched_pairs:
         baseline = pair["baseline"]
         perturbed = pair["perturbed"]
         
-        t_drop = baseline["agg_score_T"] - perturbed["agg_score_T"]
-        e_drop = baseline["agg_score_E"] - perturbed["agg_score_E"]
-        b_drop = baseline["agg_score_B"] - perturbed["agg_score_B"]
-        trust_drop = baseline["trust_score"] - perturbed["trust_score"]
+        # Quality scores: higher = better, so decrease = baseline - perturbed (positive when quality decreases)
+        t_quality_decrease = baseline.get("agg_quality_T", baseline.get("agg_score_T", 0)) - perturbed.get("agg_quality_T", perturbed.get("agg_score_T", 0))
+        e_quality_decrease = baseline.get("agg_quality_E", baseline.get("agg_score_E", 0)) - perturbed.get("agg_quality_E", perturbed.get("agg_score_E", 0))
+        b_quality_decrease = baseline.get("agg_quality_B", baseline.get("agg_score_B", 0)) - perturbed.get("agg_quality_B", perturbed.get("agg_score_B", 0))
+        trust_quality_decrease = baseline.get("trust_quality", baseline.get("trust_score", 0)) - perturbed.get("trust_quality", perturbed.get("trust_score", 0))
         
-        t_drops.append(t_drop)
-        e_drops.append(e_drop)
-        b_drops.append(b_drop)
-        trust_score_drops.append(trust_drop)
+        # Raw severity scores: higher = worse, so drop = baseline - perturbed (positive when severity increases)
+        t_severity_drop = baseline["agg_score_T"] - perturbed["agg_score_T"]
+        e_severity_drop = baseline["agg_score_E"] - perturbed["agg_score_E"]
+        b_severity_drop = baseline["agg_score_B"] - perturbed["agg_score_B"]
+        trust_severity_drop = baseline["trust_score"] - perturbed["trust_score"]
+        
+        t_quality_decreases.append(t_quality_decrease)
+        e_quality_decreases.append(e_quality_decrease)
+        b_quality_decreases.append(b_quality_decrease)
+        trust_quality_decreases.append(trust_quality_decrease)
+        
+        t_severity_drops.append(t_severity_drop)
+        e_severity_drops.append(e_severity_drop)
+        b_severity_drops.append(b_severity_drop)
+        trust_severity_drops.append(trust_severity_drop)
     
     # Calculate statistics
     def calc_stats(drops: List[float], name: str) -> Dict[str, float]:
@@ -122,70 +140,77 @@ def compare_scores(
     comparison = {
         "error_type": error_type,
         "num_matched_samples": len(matched_pairs),
-        "trustworthiness_score": calc_stats(t_drops, "T"),
-        "explainability_score": calc_stats(e_drops, "E"),
-        "bias_score": calc_stats(b_drops, "B"),
-        "trust_score": calc_stats(trust_score_drops, "trust"),
+        # Quality scores (higher = better, so positive decrease means quality went down)
+        "trustworthiness_quality": calc_stats(t_quality_decreases, "T_quality"),
+        "explainability_quality": calc_stats(e_quality_decreases, "E_quality"),
+        "bias_quality": calc_stats(b_quality_decreases, "B_quality"),
+        "trust_quality": calc_stats(trust_quality_decreases, "trust_quality"),
+        # Raw severity scores (higher = worse, so positive drop means severity increased) - for backward compatibility
+        "trustworthiness_severity": calc_stats(t_severity_drops, "T_severity"),
+        "explainability_severity": calc_stats(e_severity_drops, "E_severity"),
+        "bias_severity": calc_stats(b_severity_drops, "B_severity"),
+        "trust_severity": calc_stats(trust_severity_drops, "trust_severity"),
         "specificity_analysis": {
-            # Check if the injected error type shows the largest drop
-            f"T_drop_when_{error_type}_injected": statistics.mean(t_drops) if t_drops else 0,
-            f"E_drop_when_{error_type}_injected": statistics.mean(e_drops) if e_drops else 0,
-            f"B_drop_when_{error_type}_injected": statistics.mean(b_drops) if b_drops else 0,
+            # Check if the injected error type shows the largest quality decrease
+            # Using quality scores (higher = better, so positive decrease means quality went down)
+            f"T_quality_decrease_when_{error_type}_injected": statistics.mean(t_quality_decreases) if t_quality_decreases else 0,
+            f"E_quality_decrease_when_{error_type}_injected": statistics.mean(e_quality_decreases) if e_quality_decreases else 0,
+            f"B_quality_decrease_when_{error_type}_injected": statistics.mean(b_quality_decreases) if b_quality_decreases else 0,
         }
     }
     
-    # Add specificity check
+    # Add specificity check using quality decreases (higher = better, so positive decrease means quality went down)
     if error_type == "T":
-        target_drop = statistics.mean(t_drops) if t_drops else 0
-        other_drops = [
-            statistics.mean(e_drops) if e_drops else 0,
-            statistics.mean(b_drops) if b_drops else 0
+        target_decrease = statistics.mean(t_quality_decreases) if t_quality_decreases else 0
+        other_decreases = [
+            statistics.mean(e_quality_decreases) if e_quality_decreases else 0,
+            statistics.mean(b_quality_decreases) if b_quality_decreases else 0
         ]
-        comparison["specificity_analysis"]["target_dimension_drop"] = target_drop
-        comparison["specificity_analysis"]["other_dimensions_drop"] = other_drops
-        comparison["specificity_analysis"]["is_specific"] = target_drop > max(other_drops) if other_drops else False
+        comparison["specificity_analysis"]["target_dimension_quality_decrease"] = target_decrease
+        comparison["specificity_analysis"]["other_dimensions_quality_decrease"] = other_decreases
+        comparison["specificity_analysis"]["is_specific"] = target_decrease > max(other_decreases) if other_decreases else False
     
     elif error_type == "B":
-        target_drop = statistics.mean(b_drops) if b_drops else 0
-        other_drops = [
-            statistics.mean(t_drops) if t_drops else 0,
-            statistics.mean(e_drops) if e_drops else 0
+        target_decrease = statistics.mean(b_quality_decreases) if b_quality_decreases else 0
+        other_decreases = [
+            statistics.mean(t_quality_decreases) if t_quality_decreases else 0,
+            statistics.mean(e_quality_decreases) if e_quality_decreases else 0
         ]
-        comparison["specificity_analysis"]["target_dimension_drop"] = target_drop
-        comparison["specificity_analysis"]["other_dimensions_drop"] = other_drops
-        comparison["specificity_analysis"]["is_specific"] = target_drop > max(other_drops) if other_drops else False
+        comparison["specificity_analysis"]["target_dimension_quality_decrease"] = target_decrease
+        comparison["specificity_analysis"]["other_dimensions_quality_decrease"] = other_decreases
+        comparison["specificity_analysis"]["is_specific"] = target_decrease > max(other_decreases) if other_decreases else False
     
     elif error_type == "E":
-        target_drop = statistics.mean(e_drops) if e_drops else 0
-        other_drops = [
-            statistics.mean(t_drops) if t_drops else 0,
-            statistics.mean(b_drops) if b_drops else 0
+        target_decrease = statistics.mean(e_quality_decreases) if e_quality_decreases else 0
+        other_decreases = [
+            statistics.mean(t_quality_decreases) if t_quality_decreases else 0,
+            statistics.mean(b_quality_decreases) if b_quality_decreases else 0
         ]
-        comparison["specificity_analysis"]["target_dimension_drop"] = target_drop
-        comparison["specificity_analysis"]["other_dimensions_drop"] = other_drops
-        comparison["specificity_analysis"]["is_specific"] = target_drop > max(other_drops) if other_drops else False
+        comparison["specificity_analysis"]["target_dimension_quality_decrease"] = target_decrease
+        comparison["specificity_analysis"]["other_dimensions_quality_decrease"] = other_decreases
+        comparison["specificity_analysis"]["is_specific"] = target_decrease > max(other_decreases) if other_decreases else False
     
     elif error_type == "PLACEBO":
-        # For placebo, we expect minimal/no drops
-        max_drop = max(
-            statistics.mean(t_drops) if t_drops else 0,
-            statistics.mean(e_drops) if e_drops else 0,
-            statistics.mean(b_drops) if b_drops else 0,
-            abs(statistics.mean(trust_score_drops)) if trust_score_drops else 0
+        # For placebo, we expect minimal/no quality decreases
+        max_decrease = max(
+            abs(statistics.mean(t_quality_decreases)) if t_quality_decreases else 0,
+            abs(statistics.mean(e_quality_decreases)) if e_quality_decreases else 0,
+            abs(statistics.mean(b_quality_decreases)) if b_quality_decreases else 0,
+            abs(statistics.mean(trust_quality_decreases)) if trust_quality_decreases else 0
         )
-        comparison["specificity_analysis"]["max_dimension_drop"] = max_drop
-        comparison["specificity_analysis"]["is_placebo_effective"] = max_drop < 0.1  # Threshold for minimal change
+        comparison["specificity_analysis"]["max_quality_decrease"] = max_decrease
+        comparison["specificity_analysis"]["is_placebo_effective"] = max_decrease < 1.0  # Threshold for minimal quality change (< 1% quality drop)
     
     # Print summary
-    print(f"\nScore Drops (Mean):")
-    print(f"  Trustworthiness (T): {comparison['specificity_analysis'][f'T_drop_when_{error_type}_injected']:.3f}")
-    print(f"  Explainability (E): {comparison['specificity_analysis'][f'E_drop_when_{error_type}_injected']:.3f}")
-    print(f"  Bias (B): {comparison['specificity_analysis'][f'B_drop_when_{error_type}_injected']:.3f}")
+    print(f"\nQuality Decreases (Mean) - Higher = Better, so positive decrease means quality went down:")
+    print(f"  Trustworthiness (T): {comparison['specificity_analysis'][f'T_quality_decrease_when_{error_type}_injected']:.1f}%")
+    print(f"  Explainability (E): {comparison['specificity_analysis'][f'E_quality_decrease_when_{error_type}_injected']:.1f}%")
+    print(f"  Bias (B): {comparison['specificity_analysis'][f'B_quality_decrease_when_{error_type}_injected']:.1f}%")
     
     if error_type == "PLACEBO":
-        max_drop = comparison['specificity_analysis'].get('max_dimension_drop', 0)
+        max_decrease = comparison['specificity_analysis'].get('max_quality_decrease', 0)
         is_effective = comparison['specificity_analysis'].get('is_placebo_effective', False)
-        print(f"\nPlacebo Effect: Max drop = {max_drop:.3f}")
+        print(f"\nPlacebo Effect: Max quality decrease = {max_decrease:.1f}%")
         print(f"Placebo Effective (minimal change): {'✓ YES' if is_effective else '✗ NO'}")
     else:
         print(f"\nSpecificity: {'✓ YES' if comparison['specificity_analysis'].get('is_specific', False) else '✗ NO'}")

@@ -206,11 +206,12 @@ async function handleAnalyze() {
     }
 }
 
-// Get severity rating based on score
-function getSeverityRating(score) {
-    if (score <= 0.5) return { level: 'low', label: 'Low' };
-    if (score <= 1.5) return { level: 'medium', label: 'Medium' };
-    return { level: 'high', label: 'High' };
+// Get quality rating based on score (0-100, higher = better)
+function getQualityRating(score) {
+    if (score >= 80) return { level: 'high', label: 'Excellent' };
+    if (score >= 60) return { level: 'medium', label: 'Good' };
+    if (score >= 40) return { level: 'low', label: 'Fair' };
+    return { level: 'critical', label: 'Poor' };
 }
 
 // Get confidence rating based on confidence value
@@ -222,38 +223,47 @@ function getConfidenceRating(confidence) {
 
 // Display results
 function displayResults(result) {
-    // Display TrustScore
-    const trustScore = result.summary.trust_score;
-    trustScoreEl.textContent = trustScore.toFixed(3);
+    // Display TrustScore (quality score [0-100], higher = better)
+    const trustScore = result.summary.trust_score;  // Already quality score [0-100]
+    trustScoreEl.textContent = `${trustScore.toFixed(1)}%`;
     
-    // Calculate percentage for bar: represents quality percentage
-    // Lower trust score = higher quality = more bar filled
-    // Formula: (max_score - trustScore) / max_score * 100
-    // Using max_score of 10 as a reasonable upper bound for severity scores
-    const maxScore = 10;
-    const qualityPercent = Math.max(0, Math.min(100, (maxScore - trustScore) / maxScore * 100));
+    // Quality score is already in [0-100] range, higher = better
+    // 100% = best possible score, 0% = worst possible score
+    const qualityPercent = Math.max(0, Math.min(100, trustScore));
     trustScoreBar.style.width = `${qualityPercent}%`;
     
-    // Display severity and confidence ratings
-    const severityRating = getSeverityRating(trustScore);
-    severityBadge.textContent = severityRating.label;
-    severityBadge.className = `rating-badge severity-${severityRating.level}`;
+    // Add color coding based on quality
+    trustScoreBar.className = 'score-bar'; // Reset classes
+    if (trustScore >= 80) {
+        trustScoreBar.classList.add('quality-excellent');
+    } else if (trustScore >= 60) {
+        trustScoreBar.classList.add('quality-good');
+    } else if (trustScore >= 40) {
+        trustScoreBar.classList.add('quality-fair');
+    } else {
+        trustScoreBar.classList.add('quality-poor');
+    }
+    
+    // Display quality and confidence ratings
+    const qualityRating = getQualityRating(trustScore);
+    severityBadge.textContent = qualityRating.label;
+    severityBadge.className = `rating-badge quality-${qualityRating.level}`;
     
     const confidenceRating = getConfidenceRating(result.summary.trust_confidence);
     confidenceBadge.textContent = confidenceRating.label;
     confidenceBadge.className = `rating-badge confidence-${confidenceRating.level}`;
     
-    // Display confidence interval
+    // Display confidence interval (quality space [0-100])
     const ci = result.summary.trust_score_ci;
     if (ci.lower !== null && ci.upper !== null) {
-        trustScoreCI.textContent = `95% CI: [${ci.lower.toFixed(3)}, ${ci.upper.toFixed(3)}]`;
+        trustScoreCI.textContent = `95% CI: [${ci.lower.toFixed(1)}%, ${ci.upper.toFixed(1)}%]`;
     }
 
-    // Display category scores
+    // Display category scores (quality scores [0-100], higher = better)
     const categories = result.summary.categories;
-    scoreT.textContent = categories.trustworthiness.score.toFixed(3);
-    scoreE.textContent = categories.explainability.score.toFixed(3);
-    scoreB.textContent = categories.bias.score.toFixed(3);
+    scoreT.textContent = `${categories.trustworthiness.score.toFixed(1)}%`;
+    scoreE.textContent = `${categories.explainability.score.toFixed(1)}%`;
+    scoreB.textContent = `${categories.bias.score.toFixed(1)}%`;
     
     confT.textContent = `Confidence: ${(categories.trustworthiness.confidence * 100).toFixed(1)}%`;
     confE.textContent = `Confidence: ${(categories.explainability.confidence * 100).toFixed(1)}%`;

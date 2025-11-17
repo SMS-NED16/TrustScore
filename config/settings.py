@@ -118,8 +118,12 @@ class AggregationStrategyConfig(BaseModel):
     use_robust_statistics: bool = Field(default=False)
     outlier_removal: bool = Field(default=False)
     confidence_combination_method: str = Field(default="weighted_average")
-    normalize_scores: bool = Field(default=True)
+    normalize_scores: bool = Field(default=False)  # Disabled - using sigmoid transformation instead
     score_range: Tuple[float, float] = Field(default=(0.0, 10.0))
+    # Sigmoid transformation parameters for severity -> quality conversion
+    use_quality_scores: bool = Field(default=True, description="Transform severity scores to quality scores [0-100]")
+    sigmoid_steepness: float = Field(default=0.5, ge=0.1, le=2.0, description="Steepness parameter for sigmoid (higher = steeper)")
+    sigmoid_shift: float = Field(default=0.0, description="Shift parameter for sigmoid (adjusts center point)")
 
 
 class PerformanceConfig(BaseModel):

@@ -6,6 +6,7 @@ Trustworthiness, Bias, and Explainability scores into a final TrustScore.
 """
 
 import statistics
+import math
 from typing import Dict, List, Tuple, Optional
 from models.llm_record import (
     LLMRecord, GradedSpans, GradedSpan, AggregatedOutput, 
@@ -24,6 +25,65 @@ class Aggregator:
     
     def __init__(self, config: TrustScoreConfig) -> None:
         self.config: TrustScoreConfig = config
+    
+    def _severity_to_quality(self, severity_score: float) -> float:
+        """
+        Transform severity score to quality score using sigmoid.
+        
+        Higher severity = lower quality (inverted)
+        Maps severity scores to [0, 100] quality range where:
+        - 100 = best quality (no errors, severity = 0)
+        - 0 = worst quality (high severity)
+        
+        Uses sigmoid: quality = 100 * (1 - sigmoid(k * severity + shift))
+        where sigmoid(x) = 1 / (1 + e^(-x))
+        
+        Args:
+            severity_score: Raw severity score (higher = worse)
+            
+        Returns:
+            Quality score in [0, 100] range (higher = better)
+        """
+        if not self.config.aggregation_strategy.use_quality_scores:
+            return severity_score
+        
+        k = self.config.aggregation_strategy.sigmoid_steepness
+        shift = self.config.aggregation_strategy.sigmoid_shift
+        
+        # Apply sigmoid transformation
+        # sigmoid(x) = 1 / (1 + e^(-x))
+        x = k * severity_score + shift
+        sigmoid_value = 1.0 / (1.0 + math.exp(-x))
+        
+        # Invert: higher severity -> lower quality
+        quality_score = 100.0 * (1.0 - sigmoid_value)
+        
+        # Clamp to [0, 100]
+        return max(0.0, min(100.0, quality_score))
+    
+    def _transform_confidence_interval(self, ci: ConfidenceInterval, transform_func) -> ConfidenceInterval:
+        """
+        Transform a confidence interval through a function.
+        
+        Args:
+            ci: Original confidence interval
+            transform_func: Function to apply to bounds
+            
+        Returns:
+            Transformed confidence interval
+        """
+        if ci.lower is None or ci.upper is None:
+            return ci
+        
+        # Transform both bounds
+        lower_transformed = transform_func(ci.lower)
+        upper_transformed = transform_func(ci.upper)
+        
+        # Ensure lower <= upper (sigmoid is monotonic, but numerical issues might occur)
+        if lower_transformed > upper_transformed:
+            lower_transformed, upper_transformed = upper_transformed, lower_transformed
+        
+        return ConfidenceInterval(lower=lower_transformed, upper=upper_transformed)
     
     def aggregate(self, llm_record: LLMRecord, graded_spans: GradedSpans) -> AggregatedOutput:
         """
@@ -83,18 +143,52 @@ class Aggregator:
         )
         
         # LOG: Final trust score
-        print(f"[DEBUG Aggregation] Final trust_score: {trust_score:.3f} (severity space)")
+        print(f"[DEBUG Aggregation] Final trust_score (raw): {trust_score:.3f} (severity space)")
         print(f"[DEBUG Aggregation] Final trust_confidence: {trust_confidence:.3f} (probability space [0-1])")
         
-        # Create aggregated summary
+        # Transform to quality scores if enabled
+        if self.config.aggregation_strategy.use_quality_scores:
+            # Transform category scores
+            t_quality = self._severity_to_quality(t_score)
+            e_quality = self._severity_to_quality(e_score)
+            b_quality = self._severity_to_quality(b_score)
+            trust_quality = self._severity_to_quality(trust_score)
+            
+            # Transform confidence intervals
+            t_quality_ci = self._transform_confidence_interval(t_severity_ci, self._severity_to_quality)
+            e_quality_ci = self._transform_confidence_interval(e_severity_ci, self._severity_to_quality)
+            b_quality_ci = self._transform_confidence_interval(b_severity_ci, self._severity_to_quality)
+            trust_quality_ci = self._transform_confidence_interval(trust_score_ci, self._severity_to_quality)
+            
+            print(f"[DEBUG Aggregation] Category quality scores: T={t_quality:.1f}, E={e_quality:.1f}, B={b_quality:.1f}")
+            print(f"[DEBUG Aggregation] Final trust_score (quality): {trust_quality:.1f} (quality space [0-100])")
+        else:
+            # No transformation - use raw scores
+            t_quality = t_score
+            e_quality = e_score
+            b_quality = b_score
+            trust_quality = trust_score
+            t_quality_ci = t_severity_ci
+            e_quality_ci = e_severity_ci
+            b_quality_ci = b_severity_ci
+            trust_quality_ci = trust_score_ci
+        
+        # Create aggregated summary with both raw and quality scores
         summary: AggregatedSummary = AggregatedSummary(
-            # Severity scores and CIs (severity space)
+            # Raw severity scores and CIs (severity space) - for debugging
             agg_score_T=t_score,
             agg_score_T_ci=t_severity_ci,
             agg_score_E=e_score,
             agg_score_E_ci=e_severity_ci,
             agg_score_B=b_score,
             agg_score_B_ci=b_severity_ci,
+            # Quality scores and CIs (quality space [0-100]) - for display
+            agg_quality_T=t_quality,
+            agg_quality_T_ci=t_quality_ci,
+            agg_quality_E=e_quality,
+            agg_quality_E_ci=e_quality_ci,
+            agg_quality_B=b_quality,
+            agg_quality_B_ci=b_quality_ci,
             # Confidence levels and CIs (probability space [0-1])
             agg_confidence_T=t_confidence,
             agg_confidence_T_ci=t_confidence_ci,
@@ -102,9 +196,11 @@ class Aggregator:
             agg_confidence_E_ci=e_confidence_ci,
             agg_confidence_B=b_confidence,
             agg_confidence_B_ci=b_confidence_ci,
-            # Final trust score (severity space)
-            trust_score=trust_score,
-            trust_score_ci=trust_score_ci,
+            # Final trust score - raw (severity space) and quality (quality space [0-100])
+            trust_score=trust_score,  # Raw severity score
+            trust_score_ci=trust_score_ci,  # Raw severity CI
+            trust_quality=trust_quality,  # Quality score [0-100]
+            trust_quality_ci=trust_quality_ci,  # Quality CI
             # Final trust confidence (probability space [0-1])
             trust_confidence=trust_confidence,
             trust_confidence_ci=trust_confidence_ci

@@ -310,12 +310,13 @@ def format_result(result, pipeline: TrustScorePipeline) -> Dict[str, Any]:
         
         errors.append(error_data)
     
-    # Format summary
+    # Format summary - use quality scores for display (higher = better)
     summary = {
-        "trust_score": round(result.summary.trust_score, 3),
+        "trust_score": round(result.summary.trust_quality, 1),  # Quality score [0-100]
+        "trust_score_raw": round(result.summary.trust_score, 3),  # Raw severity for debugging
         "trust_score_ci": {
-            "lower": round(result.summary.trust_score_ci.lower, 3) if result.summary.trust_score_ci.lower else None,
-            "upper": round(result.summary.trust_score_ci.upper, 3) if result.summary.trust_score_ci.upper else None
+            "lower": round(result.summary.trust_quality_ci.lower, 1) if result.summary.trust_quality_ci.lower else None,
+            "upper": round(result.summary.trust_quality_ci.upper, 1) if result.summary.trust_quality_ci.upper else None
         },
         "trust_confidence": round(result.summary.trust_confidence, 3),
         "trust_confidence_ci": {
@@ -324,27 +325,30 @@ def format_result(result, pipeline: TrustScorePipeline) -> Dict[str, Any]:
         },
         "categories": {
             "trustworthiness": {
-                "score": round(result.summary.agg_score_T, 3),
+                "score": round(result.summary.agg_quality_T, 1),  # Quality score [0-100]
+                "score_raw": round(result.summary.agg_score_T, 3),  # Raw severity for debugging
                 "confidence": round(result.summary.agg_confidence_T, 3),
                 "score_ci": {
-                    "lower": round(result.summary.agg_score_T_ci.lower, 3) if result.summary.agg_score_T_ci.lower else None,
-                    "upper": round(result.summary.agg_score_T_ci.upper, 3) if result.summary.agg_score_T_ci.upper else None
+                    "lower": round(result.summary.agg_quality_T_ci.lower, 1) if result.summary.agg_quality_T_ci.lower else None,
+                    "upper": round(result.summary.agg_quality_T_ci.upper, 1) if result.summary.agg_quality_T_ci.upper else None
                 }
             },
             "explainability": {
-                "score": round(result.summary.agg_score_E, 3),
+                "score": round(result.summary.agg_quality_E, 1),  # Quality score [0-100]
+                "score_raw": round(result.summary.agg_score_E, 3),  # Raw severity for debugging
                 "confidence": round(result.summary.agg_confidence_E, 3),
                 "score_ci": {
-                    "lower": round(result.summary.agg_score_E_ci.lower, 3) if result.summary.agg_score_E_ci.lower else None,
-                    "upper": round(result.summary.agg_score_E_ci.upper, 3) if result.summary.agg_score_E_ci.upper else None
+                    "lower": round(result.summary.agg_quality_E_ci.lower, 1) if result.summary.agg_quality_E_ci.lower else None,
+                    "upper": round(result.summary.agg_quality_E_ci.upper, 1) if result.summary.agg_quality_E_ci.upper else None
                 }
             },
             "bias": {
-                "score": round(result.summary.agg_score_B, 3),
+                "score": round(result.summary.agg_quality_B, 1),  # Quality score [0-100]
+                "score_raw": round(result.summary.agg_score_B, 3),  # Raw severity for debugging
                 "confidence": round(result.summary.agg_confidence_B, 3),
                 "score_ci": {
-                    "lower": round(result.summary.agg_score_B_ci.lower, 3) if result.summary.agg_score_B_ci.lower else None,
-                    "upper": round(result.summary.agg_score_B_ci.upper, 3) if result.summary.agg_score_B_ci.upper else None
+                    "lower": round(result.summary.agg_quality_B_ci.lower, 1) if result.summary.agg_quality_B_ci.lower else None,
+                    "upper": round(result.summary.agg_quality_B_ci.upper, 1) if result.summary.agg_quality_B_ci.upper else None
                 }
             }
         }

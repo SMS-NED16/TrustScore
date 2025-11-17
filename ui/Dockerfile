@@ -35,3 +35,4 @@ WORKDIR /app/ui
 # Run the Flask app
 CMD ["python", "app.py"]
 
+

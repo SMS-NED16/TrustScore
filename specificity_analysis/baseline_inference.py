@@ -91,25 +91,45 @@ def run_baseline_inference(
                     "sample_id": sample.get("sample_id", f"sample_{i}"),  # Original article ID
                     "unique_dataset_id": unique_id,  # Unique identifier
                     "baseline": True,
-                    "trust_score": result.summary.trust_score,
-                    "agg_score_T": result.summary.agg_score_T,
-                    "agg_score_E": result.summary.agg_score_E,
-                    "agg_score_B": result.summary.agg_score_B,
+                    "trust_score": result.summary.trust_score,  # Raw severity
+                    "trust_quality": result.summary.trust_quality,  # Quality [0-100]
+                    "agg_score_T": result.summary.agg_score_T,  # Raw severity
+                    "agg_quality_T": result.summary.agg_quality_T,  # Quality [0-100]
+                    "agg_score_E": result.summary.agg_score_E,  # Raw severity
+                    "agg_quality_E": result.summary.agg_quality_E,  # Quality [0-100]
+                    "agg_score_B": result.summary.agg_score_B,  # Raw severity
+                    "agg_quality_B": result.summary.agg_quality_B,  # Quality [0-100]
                     "trust_score_ci": {
                         "lower": result.summary.trust_score_ci.lower,
                         "upper": result.summary.trust_score_ci.upper
+                    },
+                    "trust_quality_ci": {
+                        "lower": result.summary.trust_quality_ci.lower,
+                        "upper": result.summary.trust_quality_ci.upper
                     },
                     "agg_score_T_ci": {
                         "lower": result.summary.agg_score_T_ci.lower,
                         "upper": result.summary.agg_score_T_ci.upper
                     },
+                    "agg_quality_T_ci": {
+                        "lower": result.summary.agg_quality_T_ci.lower,
+                        "upper": result.summary.agg_quality_T_ci.upper
+                    },
                     "agg_score_E_ci": {
                         "lower": result.summary.agg_score_E_ci.lower,
                         "upper": result.summary.agg_score_E_ci.upper
                     },
+                    "agg_quality_E_ci": {
+                        "lower": result.summary.agg_quality_E_ci.lower,
+                        "upper": result.summary.agg_quality_E_ci.upper
+                    },
                     "agg_score_B_ci": {
                         "lower": result.summary.agg_score_B_ci.lower,
                         "upper": result.summary.agg_score_B_ci.upper
+                    },
+                    "agg_quality_B_ci": {
+                        "lower": result.summary.agg_quality_B_ci.lower,
+                        "upper": result.summary.agg_quality_B_ci.upper
                     },
                     "num_errors": len(result.errors),
                     "errors": {
