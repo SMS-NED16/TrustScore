@@ -169,6 +169,12 @@ class TrustScorePipeline:
         
         return results
     
+    def _is_vllm_provider(self, judge: BaseJudge) -> bool:
+        """Check if a judge uses vLLM provider"""
+        return (hasattr(judge, 'llm_provider') and 
+                hasattr(judge.llm_provider, '__class__') and
+                judge.llm_provider.__class__.__name__ == 'VLLMProvider')
+    
     def _create_llm_record(self, prompt: str, response: str, model: str, 
                           generated_on: Optional[datetime]) -> LLMRecord:
         """Create LLMRecord from input data."""
@@ -191,6 +197,11 @@ class TrustScorePipeline:
                      generation_seed: Optional[int] = None) -> GradedSpans:
         """
         Grade spans using ensemble of judges for each aspect with configurable error handling.
+        
+        Uses optimized strategies based on provider:
+        - vLLM: Batches spans by judge type for efficient batch inference
+        - Other providers: Parallelizes judge calls using ThreadPoolExecutor
+        - Fallback: Sequential processing if parallelization is disabled
         
         Args:
             llm_record: The original LLM input/output pair
@@ -215,8 +226,133 @@ class TrustScorePipeline:
         print(f"[DEBUG Judge Calls] Available judges: T={list(self.judges['trustworthiness'].keys())}, "
               f"B={list(self.judges['bias'].keys())}, E={list(self.judges['explainability'].keys())}")
         
+        performance_config = self.config.performance
+        
+        # Group spans by error type for efficient processing
+        spans_by_type: Dict[str, List[tuple[str, Any]]] = {"T": [], "B": [], "E": []}
         for span_id, span in spans_tags.spans.items():
-            graded_span: GradedSpan = GradedSpan(
+            spans_by_type[span.type.value].append((span_id, span))
+        
+        # Process each error type with optimized strategy
+        for error_type, span_list in spans_by_type.items():
+            if not span_list:
+                continue
+            
+            # Get appropriate judges for this error type
+            aspect_judges: Dict[str, BaseJudge] = {}
+            if error_type == "T":
+                aspect_judges = self.judges["trustworthiness"]
+            elif error_type == "B":
+                aspect_judges = self.judges["bias"]
+            elif error_type == "E":
+                aspect_judges = self.judges["explainability"]
+            
+            if len(aspect_judges) == 0:
+                print(f"[WARNING Judge Calls] No judges available for error type {error_type}!")
+                continue
+            
+            # Limit judges per aspect if configured
+            if len(aspect_judges) > ensemble_config.max_judges_per_aspect:
+                aspect_judges = dict(list(aspect_judges.items())[:ensemble_config.max_judges_per_aspect])
+            
+            # Check if any judge uses vLLM (for batching optimization)
+            use_vllm = any(self._is_vllm_provider(judge) for judge in aspect_judges.values())
+            
+            if use_vllm and performance_config.enable_parallel_processing:
+                # vLLM: Use batching for efficiency
+                self._grade_spans_with_batching(
+                    llm_record, span_list, aspect_judges, error_type,
+                    graded_spans, ensemble_config, error_config
+                )
+            elif performance_config.enable_parallel_processing:
+                # Other providers: Use parallelization
+                self._grade_spans_with_parallelization(
+                    llm_record, span_list, aspect_judges, error_type,
+                    graded_spans, ensemble_config, error_config, performance_config
+                )
+            else:
+                # Sequential processing (fallback)
+                self._grade_spans_sequential(
+                    llm_record, span_list, aspect_judges, error_type,
+                    graded_spans, ensemble_config, error_config
+                )
+        
+        # LOG: Final summary
+        graded_type_counts = {"T": 0, "B": 0, "E": 0}
+        for span_id, span in graded_spans.spans.items():
+            graded_type_counts[span.type.value] = graded_type_counts.get(span.type.value, 0) + 1
+        
+        print(f"[DEBUG Judge Calls] Final graded spans: T={graded_type_counts['T']}, "
+              f"B={graded_type_counts['B']}, E={graded_type_counts['E']}")
+        
+        return graded_spans
+    
+    def _grade_spans_with_batching(self, llm_record: LLMRecord, span_list: List[tuple[str, Any]],
+                                   aspect_judges: Dict[str, BaseJudge], error_type: str,
+                                   graded_spans: GradedSpans, ensemble_config, error_config) -> None:
+        """Grade spans using batching (optimized for vLLM)"""
+        import random as rng
+        
+        print(f"[DEBUG Judge Calls] Using BATCHING for {error_type} spans (vLLM optimization)")
+        
+        # Process each judge separately (each judge batches all spans)
+        for judge_name, judge in aspect_judges.items():
+            try:
+                # Prepare span records for batching: (LLMRecord, SpanTag) tuples
+                span_records = [(llm_record, span) for _, span in span_list]
+                
+                # For vLLM batching, use a single random seed per batch (variability comes from temperature > 0)
+                # This is more efficient than individual calls
+                batch_seed = rng.randint(1, 2**31 - 1)
+                
+                # Batch analyze all spans for this judge
+                # Note: batch_analyze_spans doesn't support per-span seeds, but that's fine for vLLM
+                # since temperature > 0 provides natural variability
+                analyses = judge.batch_analyze_spans(span_records)
+                
+                # Assign analyses to corresponding spans
+                for (span_id, span), analysis in zip(span_list, analyses):
+                    # Get or create graded span
+                    if span_id not in graded_spans.spans:
+                        graded_span = GradedSpan(
+                            start=span.start,
+                            end=span.end,
+                            type=span.type,
+                            subtype=span.subtype,
+                            explanation=span.explanation
+                        )
+                        graded_spans.add_graded_span(span_id, graded_span)
+                    else:
+                        graded_span = graded_spans.spans[span_id]
+                    
+                    graded_span.add_judge_analysis(judge_name, analysis)
+                    print(f"[DEBUG Judge Calls] ✓ Judge '{judge_name}' batched analysis for span {span_id}")
+                    
+            except Exception as e:
+                print(f"[ERROR Judge Calls] ✗ Judge '{judge_name}' batch analysis FAILED: {str(e)}")
+                import traceback
+                print(f"[ERROR Judge Calls]   Traceback: {traceback.format_exc()}")
+                if error_config.fail_fast:
+                    raise
+                continue
+        
+        # Validate and filter spans based on ensemble requirements
+        self._validate_and_filter_spans(span_list, graded_spans, ensemble_config, error_config)
+    
+    def _grade_spans_with_parallelization(self, llm_record: LLMRecord, span_list: List[tuple[str, Any]],
+                                          aspect_judges: Dict[str, BaseJudge], error_type: str,
+                                          graded_spans: GradedSpans, ensemble_config, error_config,
+                                          performance_config) -> None:
+        """Grade spans using parallelization (optimized for non-vLLM providers)"""
+        import random as rng
+        
+        print(f"[DEBUG Judge Calls] Using PARALLELIZATION for {error_type} spans")
+        
+        max_workers = min(performance_config.max_concurrent_judges, len(aspect_judges))
+        
+        # Process each span
+        for span_id, span in span_list:
+            graded_span = GradedSpan(
                 start=span.start,
                 end=span.end,
                 type=span.type,
@@ -224,44 +360,79 @@ class TrustScorePipeline:
                 explanation=span.explanation
             )
             
-            # Get appropriate judges for this error type
-            aspect_judges: Dict[str, BaseJudge] = {}
-            if span.type.value == "T":  # Trustworthiness
-                aspect_judges = self.judges["trustworthiness"]
-            elif span.type.value == "B":  # Bias
-                aspect_judges = self.judges["bias"]
-            elif span.type.value == "E":  # Explainability
-                aspect_judges = self.judges["explainability"]
+            # Parallelize judge calls for this span
+            def call_judge(judge_name_judge_pair):
+                judge_name, judge = judge_name_judge_pair
+                try:
+                    judge_seed = rng.randint(1, 2**31 - 1)
+                    analysis = judge.analyze_span(llm_record, span, seed=judge_seed)
+                    return (judge_name, analysis, None)
+                except Exception as e:
+                    return (judge_name, None, e)
             
-            # LOG: Judge selection for this span
-            print(f"[DEBUG Judge Calls] Span {span_id} (type={span.type.value}, subtype={span.subtype}): "
-                  f"Found {len(aspect_judges)} judge(s)")
+            # Use ThreadPoolExecutor for parallel judge calls
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(call_judge, (name, judge)): name 
+                          for name, judge in aspect_judges.items()}
+                
+                judge_failures = 0
+                successful_analyses = 0
+                
+                for future in as_completed(futures):
+                    judge_name, analysis, error = future.result()
+                    if error:
+                        judge_failures += 1
+                        print(f"[ERROR Judge Calls] ✗ Judge '{judge_name}' FAILED for span {span_id}: {str(error)}")
+                        if error_config.fail_fast and judge_failures > error_config.max_judge_failures:
+                            if not error_config.continue_on_span_errors:
+                                raise RuntimeError(f"Too many judge failures ({judge_failures})")
+                    else:
+                        graded_span.add_judge_analysis(judge_name, analysis)
+                        successful_analyses += 1
+                        print(f"[DEBUG Judge Calls] ✓ Judge '{judge_name}' succeeded for span {span_id}")
             
-            if len(aspect_judges) == 0:
-                print(f"[WARNING Judge Calls] No judges available for span type {span.type.value}! "
-                      f"Span {span_id} will not be graded.")
+            # Validate and add span if it meets requirements
+            if successful_analyses >= ensemble_config.min_judges_required:
+                if ensemble_config.require_consensus:
+                    if self._check_consensus(graded_span, ensemble_config.consensus_threshold):
+                        graded_spans.add_graded_span(span_id, graded_span)
+                    else:
+                        print(f"[DEBUG Judge Calls] Span {span_id} NOT added (consensus failed)")
+                else:
+                    graded_spans.add_graded_span(span_id, graded_span)
+            elif not error_config.continue_on_span_errors:
+                raise RuntimeError(f"Insufficient judge analyses: {successful_analyses} < {ensemble_config.min_judges_required}")
+            else:
+                print(f"[WARNING Judge Calls] Span {span_id} NOT added: insufficient analyses "
+                      f"({successful_analyses} < {ensemble_config.min_judges_required})")
+    
+    def _grade_spans_sequential(self, llm_record: LLMRecord, span_list: List[tuple[str, Any]],
+                                aspect_judges: Dict[str, BaseJudge], error_type: str,
+                                graded_spans: GradedSpans, ensemble_config, error_config) -> None:
+        """Grade spans sequentially (fallback when parallelization is disabled)"""
+        import random as rng
+        
+        print(f"[DEBUG Judge Calls] Using SEQUENTIAL processing for {error_type} spans")
+        
+        for span_id, span in span_list:
+            graded_span = GradedSpan(
+                start=span.start,
+                end=span.end,
+                type=span.type,
+                subtype=span.subtype,
+                explanation=span.explanation
+            )
             
-            # Limit judges per aspect if configured
-            if len(aspect_judges) > ensemble_config.max_judges_per_aspect:
-                aspect_judges = dict(list(aspect_judges.items())[:ensemble_config.max_judges_per_aspect])
-            
-            # Track judge failures
             judge_failures = 0
             successful_analyses = 0
             
-            # Get analyses from all judges for this aspect
-            for judge_idx, (judge_name, judge) in enumerate(aspect_judges.items()):
-                print(f"[DEBUG Judge Calls] Calling judge '{judge_name}' for span {span_id} (type={span.type.value})")
+            # Get analyses from all judges for this aspect (sequential)
+            for judge_name, judge in aspect_judges.items():
+                print(f"[DEBUG Judge Calls] Calling judge '{judge_name}' for span {span_id} (type={error_type})")
                 try:
-                    # Use random seeds for judges to ensure variability
-                    # Generate a random seed for this specific judge/span call
-                    # This ensures different judges produce different outputs even with the same model
-                    # Seed control is only used for span tagger (temperature=0.0) for reproducibility
-                    import random as rng
-                    judge_seed = rng.randint(1, 2**31 - 1)  # Random seed in valid range
+                    judge_seed = rng.randint(1, 2**31 - 1)
                     analysis = judge.analyze_span(llm_record, span, seed=judge_seed)
                     
-                    # LOG: Successful judge call with details
                     print(f"[DEBUG Judge Calls] ✓ Judge '{judge_name}' succeeded for span {span_id}: "
                           f"severity_score={analysis.severity_score:.3f}, "
                           f"confidence={analysis.confidence:.3f}, "
@@ -271,30 +442,19 @@ class TrustScorePipeline:
                     successful_analyses += 1
                 except Exception as e:
                     judge_failures += 1
-                    # LOG: Judge failure with full details
-                    print(f"[ERROR Judge Calls] ✗ Judge '{judge_name}' FAILED for span {span_id} (type={span.type.value}): {str(e)}")
-                    print(f"[ERROR Judge Calls]   Exception type: {type(e).__name__}")
+                    print(f"[ERROR Judge Calls] ✗ Judge '{judge_name}' FAILED for span {span_id}: {str(e)}")
                     import traceback
                     print(f"[ERROR Judge Calls]   Traceback: {traceback.format_exc()}")
                     
-                    if error_config.log_level in ["DEBUG", "INFO", "WARNING"]:
-                        print(f"Error from judge {judge_name}: {str(e)}")
-                    
-                    # Check if we should fail fast
                     if error_config.fail_fast and judge_failures > error_config.max_judge_failures:
                         if error_config.continue_on_span_errors:
                             break
                         else:
                             raise RuntimeError(f"Too many judge failures ({judge_failures})")
-                    
                     continue
             
-            # LOG: Summary for this span
-            print(f"[DEBUG Judge Calls] Span {span_id} summary: {successful_analyses} successful, {judge_failures} failed")
-            
-            # Check if we have enough analyses based on configuration
+            # Validate and add span if it meets requirements
             if successful_analyses >= ensemble_config.min_judges_required:
-                # Apply consensus requirements if configured
                 if ensemble_config.require_consensus:
                     if self._check_consensus(graded_span, ensemble_config.consensus_threshold):
                         graded_spans.add_graded_span(span_id, graded_span)
@@ -309,16 +469,33 @@ class TrustScorePipeline:
             else:
                 print(f"[WARNING Judge Calls] Span {span_id} NOT added: insufficient analyses "
                       f"({successful_analyses} < {ensemble_config.min_judges_required})")
-        
-        # LOG: Final summary
-        graded_type_counts = {"T": 0, "B": 0, "E": 0}
-        for span_id, span in graded_spans.spans.items():
-            graded_type_counts[span.type.value] = graded_type_counts.get(span.type.value, 0) + 1
-        
-        print(f"[DEBUG Judge Calls] Final graded spans: T={graded_type_counts['T']}, "
-              f"B={graded_type_counts['B']}, E={graded_type_counts['E']}")
-        
-        return graded_spans
+    
+    def _validate_and_filter_spans(self, span_list: List[tuple[str, Any]], graded_spans: GradedSpans,
+                                   ensemble_config, error_config) -> None:
+        """Validate and filter spans based on ensemble requirements"""
+        for span_id, span in span_list:
+            if span_id not in graded_spans.spans:
+                continue
+            
+            graded_span = graded_spans.spans[span_id]
+            successful_analyses = len(graded_span.analysis)
+            
+            if successful_analyses >= ensemble_config.min_judges_required:
+                if ensemble_config.require_consensus:
+                    if self._check_consensus(graded_span, ensemble_config.consensus_threshold):
+                        print(f"[DEBUG Judge Calls] Span {span_id} added to graded_spans (consensus passed)")
+                    else:
+                        graded_spans.spans.pop(span_id)
+                        print(f"[DEBUG Judge Calls] Span {span_id} NOT added (consensus failed)")
+                else:
+                    print(f"[DEBUG Judge Calls] Span {span_id} added to graded_spans")
+            elif not error_config.continue_on_span_errors:
+                graded_spans.spans.pop(span_id)
+                raise RuntimeError(f"Insufficient judge analyses: {successful_analyses} < {ensemble_config.min_judges_required}")
+            else:
+                graded_spans.spans.pop(span_id)
+                print(f"[WARNING Judge Calls] Span {span_id} NOT added: insufficient analyses "
+                      f"({successful_analyses} < {ensemble_config.min_judges_required})")
     
     def _check_consensus(self, graded_span: GradedSpan, consensus_threshold: float) -> bool:
         """
