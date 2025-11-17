@@ -86,25 +86,56 @@ def compare_scores(
     
     # Calculate quality decreases (for quality scores: higher = better, so decrease = baseline - perturbed)
     # For raw severity scores: higher = worse, so drop = baseline - perturbed (positive when severity increases)
-    t_quality_decreases = []
+    t_quality_decreases = []  # Absolute point differences
     e_quality_decreases = []
     b_quality_decreases = []
     trust_quality_decreases = []
+    t_quality_pct_changes = []  # Percentage changes
+    e_quality_pct_changes = []
+    b_quality_pct_changes = []
+    trust_quality_pct_changes = []
     # Also keep raw severity drops for backward compatibility
     t_severity_drops = []
     e_severity_drops = []
     b_severity_drops = []
     trust_severity_drops = []
     
-    for pair in matched_pairs:
+    # Debug: Track baseline and perturbed values for first few samples
+    debug_samples = []
+    
+    for i, pair in enumerate(matched_pairs):
         baseline = pair["baseline"]
         perturbed = pair["perturbed"]
         
+        # Get quality scores (prefer quality scores, fallback to raw scores)
+        t_baseline = baseline.get("agg_quality_T", baseline.get("agg_score_T", 0))
+        t_perturbed = perturbed.get("agg_quality_T", perturbed.get("agg_score_T", 0))
+        e_baseline = baseline.get("agg_quality_E", baseline.get("agg_score_E", 0))
+        e_perturbed = perturbed.get("agg_quality_E", perturbed.get("agg_score_E", 0))
+        b_baseline = baseline.get("agg_quality_B", baseline.get("agg_score_B", 0))
+        b_perturbed = perturbed.get("agg_quality_B", perturbed.get("agg_score_B", 0))
+        trust_baseline = baseline.get("trust_quality", baseline.get("trust_score", 0))
+        trust_perturbed = perturbed.get("trust_quality", perturbed.get("trust_score", 0))
+        
         # Quality scores: higher = better, so decrease = baseline - perturbed (positive when quality decreases)
-        t_quality_decrease = baseline.get("agg_quality_T", baseline.get("agg_score_T", 0)) - perturbed.get("agg_quality_T", perturbed.get("agg_score_T", 0))
-        e_quality_decrease = baseline.get("agg_quality_E", baseline.get("agg_score_E", 0)) - perturbed.get("agg_quality_E", perturbed.get("agg_score_E", 0))
-        b_quality_decrease = baseline.get("agg_quality_B", baseline.get("agg_score_B", 0)) - perturbed.get("agg_quality_B", perturbed.get("agg_score_B", 0))
-        trust_quality_decrease = baseline.get("trust_quality", baseline.get("trust_score", 0)) - perturbed.get("trust_quality", perturbed.get("trust_score", 0))
+        t_quality_decrease = t_baseline - t_perturbed
+        e_quality_decrease = e_baseline - e_perturbed
+        b_quality_decrease = b_baseline - b_perturbed
+        trust_quality_decrease = trust_baseline - trust_perturbed
+        
+        # Calculate percentage changes: ((baseline - perturbed) / baseline) * 100
+        # Handle division by zero and negative baselines
+        def calc_pct_change(baseline_val, perturbed_val):
+            if baseline_val == 0:
+                # If baseline is 0, use absolute change as percentage of scale (100)
+                return ((baseline_val - perturbed_val) / 100.0) * 100.0 if baseline_val != perturbed_val else 0.0
+            else:
+                return ((baseline_val - perturbed_val) / baseline_val) * 100.0
+        
+        t_pct_change = calc_pct_change(t_baseline, t_perturbed)
+        e_pct_change = calc_pct_change(e_baseline, e_perturbed)
+        b_pct_change = calc_pct_change(b_baseline, b_perturbed)
+        trust_pct_change = calc_pct_change(trust_baseline, trust_perturbed)
         
         # Raw severity scores: higher = worse, so drop = baseline - perturbed (positive when severity increases)
         t_severity_drop = baseline["agg_score_T"] - perturbed["agg_score_T"]
@@ -117,10 +148,25 @@ def compare_scores(
         b_quality_decreases.append(b_quality_decrease)
         trust_quality_decreases.append(trust_quality_decrease)
         
+        t_quality_pct_changes.append(t_pct_change)
+        e_quality_pct_changes.append(e_pct_change)
+        b_quality_pct_changes.append(b_pct_change)
+        trust_quality_pct_changes.append(trust_pct_change)
+        
         t_severity_drops.append(t_severity_drop)
         e_severity_drops.append(e_severity_drop)
         b_severity_drops.append(b_severity_drop)
         trust_severity_drops.append(trust_severity_drop)
+        
+        # Store debug info for first 3 samples
+        if i < 3:
+            debug_samples.append({
+                "sample_id": pair.get("sample_id", pair.get("unique_dataset_id", "unknown")),
+                "unique_dataset_id": pair.get("unique_dataset_id", "unknown"),
+                "T": {"baseline": t_baseline, "perturbed": t_perturbed, "decrease": t_quality_decrease, "pct_change": t_pct_change},
+                "E": {"baseline": e_baseline, "perturbed": e_perturbed, "decrease": e_quality_decrease, "pct_change": e_pct_change},
+                "B": {"baseline": b_baseline, "perturbed": b_perturbed, "decrease": b_quality_decrease, "pct_change": b_pct_change},
+            })
     
     # Calculate statistics
     def calc_stats(drops: List[float], name: str) -> Dict[str, float]:
@@ -153,41 +199,58 @@ def compare_scores(
         "specificity_analysis": {
             # Check if the injected error type shows the largest quality decrease
             # Using quality scores (higher = better, so positive decrease means quality went down)
+            # Store both absolute point differences and percentage changes
             f"T_quality_decrease_when_{error_type}_injected": statistics.mean(t_quality_decreases) if t_quality_decreases else 0,
             f"E_quality_decrease_when_{error_type}_injected": statistics.mean(e_quality_decreases) if e_quality_decreases else 0,
             f"B_quality_decrease_when_{error_type}_injected": statistics.mean(b_quality_decreases) if b_quality_decreases else 0,
-        }
+            f"T_quality_pct_change_when_{error_type}_injected": statistics.mean(t_quality_pct_changes) if t_quality_pct_changes else 0,
+            f"E_quality_pct_change_when_{error_type}_injected": statistics.mean(e_quality_pct_changes) if e_quality_pct_changes else 0,
+            f"B_quality_pct_change_when_{error_type}_injected": statistics.mean(b_quality_pct_changes) if b_quality_pct_changes else 0,
+        },
+        "debug_samples": debug_samples
     }
     
     # Add specificity check using quality decreases (higher = better, so positive decrease means quality went down)
     if error_type == "T":
         target_decrease = statistics.mean(t_quality_decreases) if t_quality_decreases else 0
+        target_pct_change = statistics.mean(t_quality_pct_changes) if t_quality_pct_changes else 0
         other_decreases = [
             statistics.mean(e_quality_decreases) if e_quality_decreases else 0,
             statistics.mean(b_quality_decreases) if b_quality_decreases else 0
         ]
         comparison["specificity_analysis"]["target_dimension_quality_decrease"] = target_decrease
+        comparison["specificity_analysis"]["target_dimension_drop"] = target_decrease  # For backward compatibility with report
+        comparison["specificity_analysis"]["target_dimension_pct_change"] = target_pct_change
         comparison["specificity_analysis"]["other_dimensions_quality_decrease"] = other_decreases
+        comparison["specificity_analysis"]["other_dimensions_drop"] = other_decreases  # For backward compatibility
         comparison["specificity_analysis"]["is_specific"] = target_decrease > max(other_decreases) if other_decreases else False
     
     elif error_type == "B":
         target_decrease = statistics.mean(b_quality_decreases) if b_quality_decreases else 0
+        target_pct_change = statistics.mean(b_quality_pct_changes) if b_quality_pct_changes else 0
         other_decreases = [
             statistics.mean(t_quality_decreases) if t_quality_decreases else 0,
             statistics.mean(e_quality_decreases) if e_quality_decreases else 0
         ]
         comparison["specificity_analysis"]["target_dimension_quality_decrease"] = target_decrease
+        comparison["specificity_analysis"]["target_dimension_drop"] = target_decrease  # For backward compatibility with report
+        comparison["specificity_analysis"]["target_dimension_pct_change"] = target_pct_change
         comparison["specificity_analysis"]["other_dimensions_quality_decrease"] = other_decreases
+        comparison["specificity_analysis"]["other_dimensions_drop"] = other_decreases  # For backward compatibility
         comparison["specificity_analysis"]["is_specific"] = target_decrease > max(other_decreases) if other_decreases else False
     
     elif error_type == "E":
         target_decrease = statistics.mean(e_quality_decreases) if e_quality_decreases else 0
+        target_pct_change = statistics.mean(e_quality_pct_changes) if e_quality_pct_changes else 0
         other_decreases = [
             statistics.mean(t_quality_decreases) if t_quality_decreases else 0,
             statistics.mean(b_quality_decreases) if b_quality_decreases else 0
         ]
         comparison["specificity_analysis"]["target_dimension_quality_decrease"] = target_decrease
+        comparison["specificity_analysis"]["target_dimension_drop"] = target_decrease  # For backward compatibility with report
+        comparison["specificity_analysis"]["target_dimension_pct_change"] = target_pct_change
         comparison["specificity_analysis"]["other_dimensions_quality_decrease"] = other_decreases
+        comparison["specificity_analysis"]["other_dimensions_drop"] = other_decreases  # For backward compatibility
         comparison["specificity_analysis"]["is_specific"] = target_decrease > max(other_decreases) if other_decreases else False
     
     elif error_type == "PLACEBO":
@@ -199,21 +262,45 @@ def compare_scores(
             abs(statistics.mean(trust_quality_decreases)) if trust_quality_decreases else 0
         )
         comparison["specificity_analysis"]["max_quality_decrease"] = max_decrease
-        comparison["specificity_analysis"]["is_placebo_effective"] = max_decrease < 1.0  # Threshold for minimal quality change (< 1% quality drop)
+        comparison["specificity_analysis"]["max_dimension_drop"] = max_decrease  # For backward compatibility with report
+        comparison["specificity_analysis"]["is_placebo_effective"] = max_decrease < 1.0  # Threshold for minimal quality change (< 1 point drop)
     
-    # Print summary
-    print(f"\nQuality Decreases (Mean) - Higher = Better, so positive decrease means quality went down:")
-    print(f"  Trustworthiness (T): {comparison['specificity_analysis'][f'T_quality_decrease_when_{error_type}_injected']:.1f}%")
-    print(f"  Explainability (E): {comparison['specificity_analysis'][f'E_quality_decrease_when_{error_type}_injected']:.1f}%")
-    print(f"  Bias (B): {comparison['specificity_analysis'][f'B_quality_decrease_when_{error_type}_injected']:.1f}%")
+    # Print summary with both absolute and percentage changes
+    print(f"\nQuality Changes (Mean) - Higher = Better, so positive decrease means quality went down:")
+    t_abs = comparison['specificity_analysis'][f'T_quality_decrease_when_{error_type}_injected']
+    e_abs = comparison['specificity_analysis'][f'E_quality_decrease_when_{error_type}_injected']
+    b_abs = comparison['specificity_analysis'][f'B_quality_decrease_when_{error_type}_injected']
+    t_pct = comparison['specificity_analysis'][f'T_quality_pct_change_when_{error_type}_injected']
+    e_pct = comparison['specificity_analysis'][f'E_quality_pct_change_when_{error_type}_injected']
+    b_pct = comparison['specificity_analysis'][f'B_quality_pct_change_when_{error_type}_injected']
+    
+    print(f"  Trustworthiness (T): {t_abs:+.2f} points ({t_pct:+.2f}%)")
+    print(f"  Explainability (E): {e_abs:+.2f} points ({e_pct:+.2f}%)")
+    print(f"  Bias (B): {b_abs:+.2f} points ({b_pct:+.2f}%)")
+    
+    # Print debug info for first few samples
+    if debug_samples:
+        print(f"\nDebug: First {len(debug_samples)} sample(s) comparison:")
+        for i, sample_debug in enumerate(debug_samples, 1):
+            print(f"  Sample {i} ({sample_debug['sample_id']}):")
+            for dim in ["T", "E", "B"]:
+                dim_data = sample_debug[dim]
+                print(f"    {dim}: baseline={dim_data['baseline']:.2f}, perturbed={dim_data['perturbed']:.2f}, "
+                      f"decrease={dim_data['decrease']:+.2f} points ({dim_data['pct_change']:+.2f}%)")
     
     if error_type == "PLACEBO":
         max_decrease = comparison['specificity_analysis'].get('max_quality_decrease', 0)
         is_effective = comparison['specificity_analysis'].get('is_placebo_effective', False)
-        print(f"\nPlacebo Effect: Max quality decrease = {max_decrease:.1f}%")
+        print(f"\nPlacebo Effect: Max quality decrease = {max_decrease:.2f} points")
         print(f"Placebo Effective (minimal change): {'✓ YES' if is_effective else '✗ NO'}")
     else:
-        print(f"\nSpecificity: {'✓ YES' if comparison['specificity_analysis'].get('is_specific', False) else '✗ NO'}")
+        target_decrease = comparison['specificity_analysis'].get('target_dimension_quality_decrease', 0)
+        other_decreases = comparison['specificity_analysis'].get('other_dimensions_quality_decrease', [])
+        is_specific = comparison['specificity_analysis'].get('is_specific', False)
+        print(f"\nSpecificity Analysis:")
+        print(f"  Target dimension ({error_type}) decrease: {target_decrease:+.2f} points")
+        print(f"  Other dimensions decreases: {[f'{d:+.2f}' for d in other_decreases]}")
+        print(f"  Is specific: {'✓ YES' if is_specific else '✗ NO'}")
     
     return comparison
 
