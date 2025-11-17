@@ -30,6 +30,7 @@ from specificity_analysis.baseline_inference import run_baseline_inference
 from specificity_analysis.perturbed_inference import run_perturbed_inference
 from specificity_analysis.score_comparison import compare_scores, generate_report
 from specificity_analysis.dual_logger import initialize_logging, cleanup_logging
+from specificity_analysis.filter_error_free import filter_error_free_samples, filter_samples_by_ids
 
 from config.settings import (
     TrustScoreConfig, SpanTaggerConfig, JudgeConfig, 
@@ -56,7 +57,9 @@ DRIVE_MOUNT_PATH = "/content/drive"
 DRIVE_RESULTS_PATH = "/content/drive/MyDrive/TrustScore_Results"
 
 # Configuration
-MAX_SAMPLES = 10  # Run with 10 samples for faster testing
+MAX_SAMPLES = 100  # Run with 100 samples for baseline inference
+MAX_FILTERED_SAMPLES = None  # Maximum number of error-free samples to use (None = use all available)
+MAX_ERRORS_FOR_FILTER = 0  # Maximum errors allowed for filtering (0 = error-free only)
 
 def mount_google_drive():
     """Mount Google Drive in Colab."""
@@ -227,10 +230,99 @@ if samples:
     print(f"  Response preview: {samples[0]['response'][:200]}...")
 
 # ============================================================================
-# STEP 1: Run Error Injector for T/E/B/Placebo
+# STEP 1: Run TrustScore on Baseline (Original Responses)
 # ============================================================================
 print("\n" + "=" * 70)
-print("STEP 1: Error Injection with VLLM")
+print("STEP 1: Baseline TrustScore Inference with VLLM")
+print("=" * 70)
+print(f"Model: {VLLM_MODEL}")
+print(f"Temperature: {TEMPERATURE}")
+print("=" * 70)
+
+baseline_path = os.path.join(output_dir, "baseline_results.jsonl")
+
+# Create VLLM config for pipeline
+vllm_config = create_vllm_config_for_pipeline()
+
+# Run baseline inference with VLLM
+baseline_results = run_baseline_inference(
+    samples=samples,
+    output_path=baseline_path,
+    use_mock=False,  # Use real VLLM
+    config=vllm_config
+)
+
+save_to_drive(baseline_path)
+print(f"\n✓ Baseline results saved to {baseline_path}")
+
+# Inspect first baseline result
+if baseline_results and "error" not in baseline_results[0]:
+    print(f"\n  First baseline result:")
+    print(f"    TrustScore: {baseline_results[0].get('trust_score', 'N/A'):.3f}")
+    print(f"    T: {baseline_results[0].get('agg_score_T', 'N/A'):.3f}")
+    print(f"    E: {baseline_results[0].get('agg_score_E', 'N/A'):.3f}")
+    print(f"    B: {baseline_results[0].get('agg_score_B', 'N/A'):.3f}")
+    print(f"    Errors found: {baseline_results[0].get('num_errors', 0)}")
+
+# ============================================================================
+# STEP 1.5: Filter for Error-Free Samples
+# ============================================================================
+print("\n" + "=" * 70)
+print("STEP 1.5: Filtering for Error-Free Samples")
+print("=" * 70)
+print(f"Filtering criteria:")
+print(f"  - Maximum errors allowed: {MAX_ERRORS_FOR_FILTER}")
+print(f"  - Maximum samples to use: {MAX_FILTERED_SAMPLES or 'all available'}")
+
+# Filter for error-free samples (especially important for T error injection)
+error_free_ids = filter_error_free_samples(
+    baseline_results_path=baseline_path,
+    max_errors=MAX_ERRORS_FOR_FILTER,
+    error_type_filter=None,  # Count all errors
+    max_samples=MAX_FILTERED_SAMPLES
+)
+
+if not error_free_ids:
+    print("\n⚠ WARNING: No error-free samples found!")
+    print("  This may indicate:")
+    print("  - All samples have errors")
+    print("  - Consider increasing MAX_ERRORS_FOR_FILTER")
+    print("  - Proceeding with all samples (may affect specificity analysis)")
+    filtered_samples = samples
+else:
+    print(f"\n✓ Found {len(error_free_ids)} error-free samples")
+    filtered_samples = filter_samples_by_ids(samples, set(error_free_ids))
+    print(f"✓ Filtered to {len(filtered_samples)} samples for error injection")
+    
+    # Save filtered samples
+    filtered_samples_path = os.path.join(output_dir, "filtered_samples.jsonl")
+    save_samples(filtered_samples, filtered_samples_path)
+    save_to_drive(filtered_samples_path)
+    print(f"✓ Saved filtered samples to {filtered_samples_path}")
+
+# For T error injection, use even stricter filtering (0 T errors specifically)
+print("\n  Filtering for T error injection (0 T errors required)...")
+t_error_free_ids = filter_error_free_samples(
+    baseline_results_path=baseline_path,
+    max_errors=0,
+    error_type_filter="T",  # Only count T errors
+    max_samples=MAX_FILTERED_SAMPLES
+)
+
+if not t_error_free_ids:
+    print("  ⚠ WARNING: No samples with 0 T errors found!")
+    print("  Using general error-free samples for T injection...")
+    t_filtered_samples = filtered_samples
+else:
+    print(f"  ✓ Found {len(t_error_free_ids)} samples with 0 T errors")
+    t_filtered_samples = filter_samples_by_ids(samples, set(t_error_free_ids))
+    print(f"  ✓ Using {len(t_filtered_samples)} samples for T error injection")
+
+# ============================================================================
+# STEP 2: Run Error Injector for T/E/B/Placebo
+# ============================================================================
+print("\n" + "=" * 70)
+print("STEP 2: Error Injection with VLLM")
 print("=" * 70)
 print(f"Model: {VLLM_MODEL}")
 print(f"Temperature: {TEMPERATURE}")
@@ -253,16 +345,26 @@ for error_type in error_types:
     print(f"\n  Creating {error_type}_perturbed dataset...")
     perturbed_path = os.path.join(output_dir, f"{error_type}_perturbed.jsonl")
     
+    # Select appropriate samples for this error type
+    # For T errors, use samples with 0 T errors specifically
+    # For others, use general error-free samples
+    if error_type == "T":
+        samples_to_use = t_filtered_samples
+        print(f"    Using {len(samples_to_use)} samples (filtered for 0 T errors)")
+    else:
+        samples_to_use = filtered_samples
+        print(f"    Using {len(samples_to_use)} samples (filtered for error-free)")
+    
     if injector:
         # Use real error injector with VLLM
         perturbed_samples = injector.create_perturbed_dataset(
-            samples=samples,
+            samples=samples_to_use,
             error_type=error_type
         )
     else:
         # Create placeholder (for testing structure)
         perturbed_samples = []
-        for sample in tqdm(samples, desc=f"Creating {error_type}_perturbed (placeholder)", unit="sample"):
+        for sample in tqdm(samples_to_use, desc=f"Creating {error_type}_perturbed (placeholder)", unit="sample"):
             perturbed = sample.copy()
             perturbed["error_type_injected"] = error_type
             # Ensure unique_dataset_id is preserved
@@ -302,45 +404,10 @@ for error_type in error_types:
         print(f"    Changed: {orig != pert}")
 
 # ============================================================================
-# STEP 2: Run TrustScore on Baseline (Original Responses)
-# ============================================================================
-print("\n" + "=" * 70)
-print("STEP 2: Baseline TrustScore Inference with VLLM")
-print("=" * 70)
-print(f"Model: {VLLM_MODEL}")
-print(f"Temperature: {TEMPERATURE}")
-print("=" * 70)
-
-baseline_path = os.path.join(output_dir, "baseline_results.jsonl")
-
-# Create VLLM config for pipeline
-vllm_config = create_vllm_config_for_pipeline()
-
-# Run baseline inference with VLLM
-baseline_results = run_baseline_inference(
-    samples=samples,
-    output_path=baseline_path,
-    use_mock=False,  # Use real VLLM
-    config=vllm_config
-)
-
-save_to_drive(baseline_path)
-print(f"\n✓ Baseline results saved to {baseline_path}")
-
-# Inspect first baseline result
-if baseline_results and "error" not in baseline_results[0]:
-    print(f"\n  First baseline result:")
-    print(f"    TrustScore: {baseline_results[0].get('trust_score', 'N/A'):.3f}")
-    print(f"    T: {baseline_results[0].get('agg_score_T', 'N/A'):.3f}")
-    print(f"    E: {baseline_results[0].get('agg_score_E', 'N/A'):.3f}")
-    print(f"    B: {baseline_results[0].get('agg_score_B', 'N/A'):.3f}")
-    print(f"    Errors found: {baseline_results[0].get('num_errors', 0)}")
-
-# ============================================================================
 # STEP 3: Run TrustScore on Perturbed Datasets (One by One)
 # ============================================================================
 print("\n" + "=" * 70)
-print("STEP 3: TrustScore on Perturbed Datasets with VLLM")
+print("STEP 3: TrustScore Inference on Perturbed Datasets with VLLM")
 print("=" * 70)
 
 perturbed_results_paths = {}

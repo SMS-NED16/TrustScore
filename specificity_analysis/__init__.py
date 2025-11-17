@@ -11,6 +11,7 @@ from .error_injector import ErrorInjector
 from .baseline_inference import run_baseline_inference
 from .perturbed_inference import run_perturbed_inference
 from .score_comparison import compare_scores, generate_report, load_results
+from .filter_error_free import filter_error_free_samples, filter_samples_by_ids
 
 __all__ = [
     'load_and_sample_dataset',
@@ -20,7 +21,9 @@ __all__ = [
     'run_perturbed_inference',
     'compare_scores',
     'generate_report',
-    'load_results'
+    'load_results',
+    'filter_error_free_samples',
+    'filter_samples_by_ids'
 ]
 
 # Step-by-step runner is available via import
