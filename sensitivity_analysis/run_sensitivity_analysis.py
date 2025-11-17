@@ -12,6 +12,7 @@ import torch
 import numpy as np
 from typing import List, Dict, Any, Optional
 from tqdm import tqdm
+from datetime import datetime
 
 # Set seeds for reproducibility
 RANDOM_SEED = 42
@@ -61,7 +62,7 @@ ERROR_SUBTYPES = {
 
 # Google Drive paths
 DRIVE_MOUNT_PATH = "/content/drive"
-DRIVE_RESULTS_PATH = "/content/drive/MyDrive/TrustScore_Results/sensitivity_analysis"
+DRIVE_RESULTS_BASE = "/content/drive/MyDrive/TrustScore_Results"
 
 
 def mount_google_drive():
@@ -69,14 +70,14 @@ def mount_google_drive():
     if IN_COLAB:
         print("Mounting Google Drive...")
         drive.mount(DRIVE_MOUNT_PATH)
-        os.makedirs(DRIVE_RESULTS_PATH, exist_ok=True)
+        os.makedirs(DRIVE_RESULTS_BASE, exist_ok=True)
         print(f"✓ Google Drive mounted at {DRIVE_MOUNT_PATH}")
-        print(f"✓ Results will be saved to {DRIVE_RESULTS_PATH}")
+        print(f"✓ Results base directory: {DRIVE_RESULTS_BASE}")
         return True
     return False
 
 
-def save_to_drive(local_path: str, drive_path: Optional[str] = None):
+def save_to_drive(local_path: str, drive_path: Optional[str] = None, timestamped_dir: Optional[str] = None):
     """Save file to Google Drive if in Colab and Drive is mounted."""
     if IN_COLAB and os.path.exists(DRIVE_MOUNT_PATH):
         try:
@@ -87,7 +88,12 @@ def save_to_drive(local_path: str, drive_path: Optional[str] = None):
                     rel_path = local_path.replace("results/", "")
                 else:
                     rel_path = os.path.basename(local_path)
-                drive_path = os.path.join(DRIVE_RESULTS_PATH, rel_path)
+                
+                # Use timestamped directory if provided
+                if timestamped_dir:
+                    drive_path = os.path.join(DRIVE_RESULTS_BASE, timestamped_dir, rel_path)
+                else:
+                    drive_path = os.path.join(DRIVE_RESULTS_BASE, "sensitivity_analysis", rel_path)
 
             drive_dir = os.path.dirname(drive_path)
             os.makedirs(drive_dir, exist_ok=True)
@@ -172,9 +178,22 @@ def create_vllm_error_injector():
 
 
 # Run sensitivity analysis pipeline on import
-# Setup output directory
-output_dir = "results/sensitivity_analysis"
+# Setup output directory with timestamp
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = f"results/sensitivity_analysis_{timestamp}"
 os.makedirs(output_dir, exist_ok=True)
+
+# Set up Google Drive path with timestamp
+if IN_COLAB:
+    drive_results_dir = f"sensitivity_analysis_{timestamp}"
+    DRIVE_RESULTS_PATH = os.path.join(DRIVE_RESULTS_BASE, drive_results_dir)
+else:
+    drive_results_dir = None
+    DRIVE_RESULTS_PATH = None
+
+print(f"Results will be saved to: {output_dir}")
+if IN_COLAB and DRIVE_RESULTS_PATH:
+    print(f"Google Drive path: {DRIVE_RESULTS_PATH}")
 
 # Initialize dual logging (console + file)
 logger = None
@@ -238,7 +257,7 @@ else:
 # Save samples for reference
 samples_path = os.path.join(output_dir, "sampled_dataset.jsonl")
 save_samples(samples, samples_path)
-save_to_drive(samples_path)
+save_to_drive(samples_path, timestamped_dir=drive_results_dir)
 
 if samples:
     print("\nFirst sample preview:")
@@ -319,9 +338,9 @@ for error_type, subtypes in ERROR_SUBTYPES.items():
                         )
                         datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
                     
-                    # Save dataset
-                    save_samples(k_samples, dataset_path)
-                    save_to_drive(dataset_path)
+                        # Save dataset
+                        save_samples(k_samples, dataset_path)
+                        save_to_drive(dataset_path, timestamped_dir=drive_results_dir)
                     
                     print(f"  ✓ Saved {len(k_samples)} samples to {dataset_path}")
                 
@@ -374,10 +393,10 @@ for error_type, subtypes in ERROR_SUBTYPES.items():
                         config=config
                     )
                     
-                    results_by_key[key] = result_path
-                    save_to_drive(result_path)
-                    
-                    print(f"✓ Inference complete for {key}")
+                        results_by_key[key] = result_path
+                        save_to_drive(result_path, timestamped_dir=drive_results_dir)
+                        
+                        print(f"✓ Inference complete for {key}")
                 
             except Exception as e:
                 print(f"✗ Error running inference for {key}: {str(e)}")
@@ -427,7 +446,7 @@ if sensitivity_reports:
     report_path = os.path.join(output_dir, "sensitivity_report.json")
     with open(report_path, 'w', encoding='utf-8') as f:
         json.dump(sensitivity_reports, f, indent=2, ensure_ascii=False)
-    save_to_drive(report_path)
+    save_to_drive(report_path, timestamped_dir=drive_results_dir)
     print(f"\n✓ Sensitivity report saved to {report_path}")
 
 # ============================================================================
@@ -437,7 +456,7 @@ print("\n" + "=" * 70)
 print("PIPELINE COMPLETE!")
 print("=" * 70)
 print(f"\nAll results saved in: {output_dir}")
-if IN_COLAB:
+if IN_COLAB and DRIVE_RESULTS_PATH:
     print(f"Results also saved to Google Drive: {DRIVE_RESULTS_PATH}")
 print("\nFiles created:")
 print(f"  - sampled_dataset.jsonl")
@@ -468,5 +487,5 @@ finally:
         # Save log file to Google Drive (after file is closed)
         log_file_path = os.path.join(output_dir, "execution.log")
         if os.path.exists(log_file_path):
-            save_to_drive(log_file_path)
+            save_to_drive(log_file_path, timestamped_dir=drive_results_dir)
 
