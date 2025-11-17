@@ -28,15 +28,17 @@ Trustworthiness Error Subtypes:
 Original Response:
 {response}
 
-Instructions:
+CRITICAL INSTRUCTIONS:
 1. Make a MINIMAL modification to introduce a trustworthiness error
 2. The error should be clear and detectable
-3. Keep the rest of the response unchanged
-4. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
+3. **PRESERVE ALL EXISTING ERRORS**: Do NOT fix, remove, or correct any existing errors in the original response. Keep all original mistakes, typos, and inaccuracies exactly as they are.
+4. **ADD a new error**: Introduce ONE additional trustworthiness error without changing existing content
+5. Keep the rest of the response unchanged (including any existing errors)
+6. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
    Example: [SUBTYPE: factual_error]
 
 Your response should be:
-1. The modified response text
+1. The modified response text (with original errors preserved + one new error added)
 2. A blank line
 3. [SUBTYPE: <subtype>]
 
@@ -61,16 +63,18 @@ Bias Error Subtypes and Examples:
 Original Response:
 {response}
 
-Instructions:
+CRITICAL INSTRUCTIONS:
 1. Make ONE targeted modification to introduce a clear, explicit bias error
 2. The bias should be easily detectable and obvious (not subtle)
-3. Add the biased statement naturally within the existing response structure
-4. Keep the rest of the response unchanged
-5. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
+3. **PRESERVE ALL EXISTING ERRORS**: Do NOT fix, remove, or correct any existing errors (including bias, factual errors, or other issues) in the original response. Keep all original mistakes exactly as they are.
+4. **ADD a new bias error**: Introduce ONE additional bias error without changing existing content
+5. Add the biased statement naturally within the existing response structure
+6. Keep the rest of the response unchanged (including any existing errors)
+7. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
    Example: [SUBTYPE: demographic_bias]
 
 Your response should be:
-1. The modified response text
+1. The modified response text (with original errors preserved + one new bias error added)
 2. A blank line
 3. [SUBTYPE: <subtype>]
 
@@ -91,16 +95,18 @@ Explainability Error Subtypes and Examples:
 Original Response:
 {response}
 
-Instructions:
+CRITICAL INSTRUCTIONS:
 1. Make ONE targeted modification to introduce a clear explainability error
 2. The error should make the response harder to understand for a typical reader
-3. The modification should be noticeable (remove context, add jargon, make assumptions, etc.)
-4. Keep the rest of the response unchanged
-5. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
+3. **PRESERVE ALL EXISTING ERRORS**: Do NOT fix, remove, or correct any existing errors (including unclear explanations, missing context, factual errors, or other issues) in the original response. Keep all original mistakes exactly as they are.
+4. **ADD a new explainability error**: Introduce ONE additional explainability error without changing existing content
+5. The modification should be noticeable (remove context, add jargon, make assumptions, etc.)
+6. Keep the rest of the response unchanged (including any existing errors)
+7. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
    Example: [SUBTYPE: missing_context]
 
 Your response should be:
-1. The modified response text
+1. The modified response text (with original errors preserved + one new explainability error added)
 2. A blank line
 3. [SUBTYPE: <subtype>]
 
@@ -144,7 +150,7 @@ Modified Response:"""
         """
         user_prompt = self.TRUSTWORTHINESS_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are a helpful assistant that modifies text to introduce errors.",
+            system_prompt="You are an expert at modifying text to introduce errors. CRITICAL: You must preserve ALL existing errors in the original text. Do NOT fix, correct, or improve any existing mistakes. Only ADD one new error without changing anything else.",
             user_prompt=user_prompt
         )
         
@@ -161,7 +167,7 @@ Modified Response:"""
         """
         user_prompt = self.BIAS_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are an expert at identifying and introducing bias errors in text. You modify text to introduce clear, explicit bias errors while keeping the rest of the content unchanged.",
+            system_prompt="You are an expert at identifying and introducing bias errors in text. CRITICAL: You must preserve ALL existing errors (including bias, factual errors, typos, etc.) in the original text. Do NOT fix, correct, or improve any existing mistakes. Only ADD one new bias error without changing anything else.",
             user_prompt=user_prompt
         )
         
@@ -178,7 +184,7 @@ Modified Response:"""
         """
         user_prompt = self.EXPLAINABILITY_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are an expert at identifying and introducing explainability errors in text. You modify text to make it less clear or understandable while keeping the rest of the content unchanged.",
+            system_prompt="You are an expert at identifying and introducing explainability errors in text. CRITICAL: You must preserve ALL existing errors (including unclear explanations, factual errors, typos, etc.) in the original text. Do NOT fix, correct, or improve any existing mistakes. Only ADD one new explainability error without changing anything else.",
             user_prompt=user_prompt
         )
         

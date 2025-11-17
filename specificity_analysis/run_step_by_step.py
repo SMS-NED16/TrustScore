@@ -56,7 +56,7 @@ DRIVE_MOUNT_PATH = "/content/drive"
 DRIVE_RESULTS_PATH = "/content/drive/MyDrive/TrustScore_Results"
 
 # Configuration
-MAX_SAMPLES = 100  # Change this to configure sample count
+MAX_SAMPLES = 10  # Run with 10 samples for faster testing
 
 def mount_google_drive():
     """Mount Google Drive in Colab."""
