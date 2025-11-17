@@ -9,6 +9,7 @@ import json
 import random
 import torch
 import numpy as np
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from tqdm import tqdm
 
@@ -159,9 +160,11 @@ def create_vllm_error_injector():
     )
     return injector
 
-# Setup output directory
-output_dir = "results/specificity_analysis"
+# Setup output directory with timestamp
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = f"results/specificity_analysis_{timestamp}"
 os.makedirs(output_dir, exist_ok=True)
+print(f"Results will be saved to: {output_dir}")
 
 # Initialize dual logging (console + file)
 logger = None
