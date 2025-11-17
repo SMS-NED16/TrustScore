@@ -124,11 +124,15 @@ def compare_scores(
         trust_quality_decrease = trust_baseline - trust_perturbed
         
         # Calculate percentage changes: ((baseline - perturbed) / baseline) * 100
-        # Handle division by zero and negative baselines
+        # Handle division by zero and very small baselines (which cause huge percentages)
         def calc_pct_change(baseline_val, perturbed_val):
             if baseline_val == 0:
                 # If baseline is 0, use absolute change as percentage of scale (100)
                 return ((baseline_val - perturbed_val) / 100.0) * 100.0 if baseline_val != perturbed_val else 0.0
+            elif abs(baseline_val) < 1.0:
+                # For very small baselines (< 1.0), percentage changes are misleading
+                # Instead, report as percentage of scale (100) to avoid huge numbers
+                return ((baseline_val - perturbed_val) / 100.0) * 100.0
             else:
                 return ((baseline_val - perturbed_val) / baseline_val) * 100.0
         
