@@ -7,7 +7,7 @@ decrease in TrustScore as error count increases.
 
 import json
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import statistics
 from scipy.stats import kendalltau, spearmanr
 
@@ -114,13 +114,15 @@ def calculate_monotonicity_metrics(
         kendall_result = kendalltau(k_values_sorted, mean_scores)
         spearman_result = spearmanr(k_values_sorted, mean_scores)
         
-        kendall_tau = kendall_result.correlation
-        kendall_pvalue = kendall_result.pvalue
-        spearman_rho = spearman_result.correlation
-        spearman_pvalue = spearman_result.pvalue
+        # Convert numpy types to native Python types for JSON serialization
+        kendall_tau = float(kendall_result.correlation) if kendall_result.correlation is not None else None
+        kendall_pvalue = float(kendall_result.pvalue) if kendall_result.pvalue is not None else None
+        spearman_rho = float(spearman_result.correlation) if spearman_result.correlation is not None else None
+        spearman_pvalue = float(spearman_result.pvalue) if spearman_result.pvalue is not None else None
         
         # Monotonic if correlation is significantly negative
-        monotonic = kendall_tau < -0.5 and kendall_pvalue < 0.05
+        # Convert to native Python bool
+        monotonic = bool(kendall_tau < -0.5 and kendall_pvalue < 0.05) if kendall_tau is not None and kendall_pvalue is not None else False
     else:
         kendall_tau = None
         kendall_pvalue = None
@@ -145,11 +147,12 @@ def calculate_monotonicity_metrics(
             dim_kendall = kendalltau(dim_k_values, dim_mean_scores)
             dim_spearman = spearmanr(dim_k_values, dim_mean_scores)
             
+            # Convert numpy types to native Python types for JSON serialization
             off_target_metrics[dim] = {
-                "kendall_tau": dim_kendall.correlation,
-                "kendall_pvalue": dim_kendall.pvalue,
-                "spearman_rho": dim_spearman.correlation,
-                "spearman_pvalue": dim_spearman.pvalue
+                "kendall_tau": float(dim_kendall.correlation) if dim_kendall.correlation is not None else None,
+                "kendall_pvalue": float(dim_kendall.pvalue) if dim_kendall.pvalue is not None else None,
+                "spearman_rho": float(dim_spearman.correlation) if dim_spearman.correlation is not None else None,
+                "spearman_pvalue": float(dim_spearman.pvalue) if dim_spearman.pvalue is not None else None
             }
         else:
             off_target_metrics[dim] = {
@@ -160,10 +163,11 @@ def calculate_monotonicity_metrics(
             }
     
     # Create mean scores by k dictionary
+    # Convert to native Python float for JSON serialization
     mean_scores_by_k = {}
     for k, scores in k_to_scores.items():
         if scores:  # Only if there are scores for this k
-            mean_scores_by_k[str(k)] = statistics.mean(scores)
+            mean_scores_by_k[str(k)] = float(statistics.mean(scores))
     
     return {
         "target_gauge": {
