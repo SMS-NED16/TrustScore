@@ -4,8 +4,9 @@ Compare scores between baseline and perturbed datasets
 
 import json
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import statistics
+from config.settings import TrustScoreConfig
 
 
 def load_results(file_path: str) -> List[Dict[str, Any]]:
@@ -20,10 +21,120 @@ def load_results(file_path: str) -> List[Dict[str, Any]]:
     return results
 
 
+def merge_baseline_errors_into_perturbed(
+    baseline_result: Dict[str, Any],
+    perturbed_result: Dict[str, Any],
+    config: TrustScoreConfig
+) -> Dict[str, Any]:
+    """
+    Merge baseline errors into perturbed results and recalculate scores.
+    
+    This ensures perturbed results contain all baseline errors plus newly injected errors.
+    This should improve specificity analysis by ensuring we're comparing:
+    - Baseline: original errors
+    - Perturbed: original errors + newly injected error
+    
+    Args:
+        baseline_result: Baseline result with original errors
+        perturbed_result: Perturbed result with newly detected errors
+        config: TrustScoreConfig for recalculating scores
+        
+    Returns:
+        Updated perturbed result with merged errors and recalculated scores
+    """
+    baseline_spans = baseline_result.get("spans", {})
+    perturbed_spans = perturbed_result.get("spans", {})
+    
+    # Merge: start with baseline spans, then add perturbed spans
+    # Keep both even if duplicates (as requested)
+    merged_spans = baseline_spans.copy()
+    
+    # Add perturbed spans with new IDs to avoid conflicts
+    for span_id, span in perturbed_spans.items():
+        new_id = f"perturbed_{len(merged_spans)}"
+        merged_spans[new_id] = span
+    
+    # Recalculate scores from merged spans
+    return recalculate_scores_from_spans(
+        perturbed_result, merged_spans, config
+    )
+
+
+def recalculate_scores_from_spans(
+    original_result: Dict[str, Any],
+    merged_spans: Dict[str, Any],
+    config: TrustScoreConfig
+) -> Dict[str, Any]:
+    """
+    Recalculate TrustScore from merged spans without re-running inference.
+    
+    Args:
+        original_result: Original result to update
+        merged_spans: Dictionary of merged spans
+        config: TrustScoreConfig for weights and aggregation
+        
+    Returns:
+        Updated result with recalculated scores
+    """
+    from modules.aggregator import Aggregator
+    
+    # Group spans by type
+    t_spans = [s for s in merged_spans.values() if s.get("type") == "T"]
+    e_spans = [s for s in merged_spans.values() if s.get("type") == "E"]
+    b_spans = [s for s in merged_spans.values() if s.get("type") == "B"]
+    
+    # Calculate category severity scores (sum of weighted severity)
+    t_score = sum(
+        s.get("severity_score", 0) * config.get_error_subtype_weight("T", s.get("subtype", ""))
+        for s in t_spans
+    )
+    e_score = sum(
+        s.get("severity_score", 0) * config.get_error_subtype_weight("E", s.get("subtype", ""))
+        for s in e_spans
+    )
+    b_score = sum(
+        s.get("severity_score", 0) * config.get_error_subtype_weight("B", s.get("subtype", ""))
+        for s in b_spans
+    )
+    
+    # Calculate overall TrustScore (using aggregation weights)
+    weights = config.aggregation_weights
+    trust_score = (
+        weights.trustworthiness * t_score +
+        weights.explainability * e_score +
+        weights.bias * b_score
+    )
+    
+    # Convert to quality scores using aggregator
+    aggregator = Aggregator(config)
+    t_quality = aggregator._severity_to_quality(t_score)
+    e_quality = aggregator._severity_to_quality(e_score)
+    b_quality = aggregator._severity_to_quality(b_score)
+    trust_quality = aggregator._severity_to_quality(trust_score)
+    
+    # Create updated result
+    updated_result = original_result.copy()
+    updated_result.update({
+        "agg_score_T": t_score,
+        "agg_quality_T": t_quality,
+        "agg_score_E": e_score,
+        "agg_quality_E": e_quality,
+        "agg_score_B": b_score,
+        "agg_quality_B": b_quality,
+        "trust_score": trust_score,
+        "trust_quality": trust_quality,
+        "num_errors": len(merged_spans),
+        "spans": merged_spans
+    })
+    
+    return updated_result
+
+
 def compare_scores(
     baseline_results_path: str,
     perturbed_results_path: str,
-    error_type: str  # "T", "B", or "E"
+    error_type: str,  # "T", "B", or "E"
+    config: Optional[TrustScoreConfig] = None  # Add config parameter
 ) -> Dict[str, Any]:
     """
     Compare baseline and perturbed scores to measure specificity.
@@ -32,6 +143,7 @@ def compare_scores(
         baseline_results_path: Path to baseline results
         perturbed_results_path: Path to perturbed results
         error_type: Type of error injected ("T", "B", or "E")
+        config: Optional TrustScoreConfig for recalculating scores (required for merging)
         
     Returns:
         Dictionary with comparison statistics
@@ -39,6 +151,10 @@ def compare_scores(
     print("=" * 70)
     print(f"Step 4: Comparing Scores for {error_type}_perturbed")
     print("=" * 70)
+    
+    # Load config if not provided
+    if config is None:
+        config = TrustScoreConfig()  # Use default config
     
     baseline_results = load_results(baseline_results_path)
     perturbed_results = load_results(perturbed_results_path)
@@ -61,20 +177,29 @@ def compare_scores(
             if key:
                 perturbed_map[key] = r
     
-    # Match samples
+    # Match samples and merge baseline errors into perturbed results
     matched_pairs = []
     # Use union of both sets to find all possible matches
     all_keys = set(baseline_map.keys()) | set(perturbed_map.keys())
     for key in all_keys:
         if key in baseline_map and key in perturbed_map:
+            baseline = baseline_map[key]
+            perturbed = perturbed_map[key]
+            
+            # Merge baseline errors into perturbed results
+            perturbed_merged = merge_baseline_errors_into_perturbed(
+                baseline, perturbed, config
+            )
+            
             matched_pairs.append({
                 "unique_dataset_id": key,  # Use unique_dataset_id as primary identifier
-                "sample_id": baseline_map[key].get("sample_id", ""),  # Also include sample_id for reference
-                "baseline": baseline_map[key],
-                "perturbed": perturbed_map[key]
+                "sample_id": baseline.get("sample_id", ""),  # Also include sample_id for reference
+                "baseline": baseline,  # Keep original baseline
+                "perturbed": perturbed_merged  # Use merged perturbed
             })
     
     print(f"Matched {len(matched_pairs)} samples for comparison")
+    print(f"  (Merged baseline errors into perturbed results before comparison)")
     
     if len(matched_pairs) == 0:
         print("Warning: No matched pairs found for comparison!")
