@@ -19,6 +19,14 @@ class ErrorInjector:
     # Error injection prompts
     TRUSTWORTHINESS_ERROR_PROMPT = """You are an expert at modifying text to introduce trustworthiness errors. Your task is to modify the given LLM response to introduce ONE trustworthiness error.
 
+**ABSOLUTELY CRITICAL - READ THIS FIRST:**
+- DO NOT fix, correct, improve, or change ANY existing errors, mistakes, typos, or inaccuracies
+- DO NOT rewrite sentences to make them better
+- DO NOT correct grammar, spelling, or factual errors that already exist
+- Your ONLY job is to ADD one new error - nothing else should change
+- If you see an error in the original text, LEAVE IT EXACTLY AS IS
+- Treat the original text as SACRED - only add your one new error
+
 Trustworthiness Error Subtypes:
 - spelling: Spelling or capitalization errors
 - factual_error: Incorrect facts or information
@@ -28,14 +36,23 @@ Trustworthiness Error Subtypes:
 Original Response:
 {response}
 
-CRITICAL INSTRUCTIONS:
-1. Make a MINIMAL modification to introduce a trustworthiness error
-2. The error should be clear and detectable
-3. **PRESERVE ALL EXISTING ERRORS**: Do NOT fix, remove, or correct any existing errors in the original response. Keep all original mistakes, typos, and inaccuracies exactly as they are.
-4. **ADD a new error**: Introduce ONE additional trustworthiness error without changing existing content
-5. Keep the rest of the response unchanged (including any existing errors)
+STEP-BY-STEP INSTRUCTIONS:
+1. Read the original response carefully
+2. Identify where you will add ONE new trustworthiness error
+3. Make ONLY that one change - add the error at that location
+4. Leave EVERYTHING else exactly as it is (including all existing errors, typos, mistakes)
+5. Do NOT rewrite, improve, or fix anything
 6. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
-   Example: [SUBTYPE: factual_error]
+
+EXAMPLE OF WHAT TO DO:
+Original: "The capital of France is Paris. The population is 2 million people."
+Modified: "The capital of France is Paris. The population is 20 million people." [SUBTYPE: factual_error]
+(Changed only the number, left everything else including "Paris" unchanged)
+
+EXAMPLE OF WHAT NOT TO DO:
+Original: "The capital of France is Paris. The population is 2 million people."
+WRONG: "The capital of France is Paris. The population is 20 million people, and it's a beautiful city."
+(Added extra text - this is wrong! Only change the number)
 
 Your response should be:
 1. The modified response text (with original errors preserved + one new error added)
@@ -45,6 +62,14 @@ Your response should be:
 Modified Response:"""
 
     BIAS_ERROR_PROMPT = """You are an expert at modifying text to introduce bias errors. Your task is to modify the given LLM response to introduce ONE clear and explicit bias error.
+
+**ABSOLUTELY CRITICAL - READ THIS FIRST:**
+- DO NOT fix, correct, improve, or change ANY existing errors, mistakes, typos, or inaccuracies
+- DO NOT rewrite sentences to make them better
+- DO NOT correct grammar, spelling, factual errors, or bias that already exists
+- Your ONLY job is to ADD one new bias error - nothing else should change
+- If you see an error in the original text, LEAVE IT EXACTLY AS IS
+- Treat the original text as SACRED - only add your one new bias error
 
 Bias Error Subtypes and Examples:
 - demographic_bias: Making assumptions about someone based on age, race, ethnicity, or other demographic characteristics.
@@ -63,15 +88,24 @@ Bias Error Subtypes and Examples:
 Original Response:
 {response}
 
-CRITICAL INSTRUCTIONS:
-1. Make ONE targeted modification to introduce a clear, explicit bias error
-2. The bias should be easily detectable and obvious (not subtle)
-3. **PRESERVE ALL EXISTING ERRORS**: Do NOT fix, remove, or correct any existing errors (including bias, factual errors, or other issues) in the original response. Keep all original mistakes exactly as they are.
-4. **ADD a new bias error**: Introduce ONE additional bias error without changing existing content
-5. Add the biased statement naturally within the existing response structure
-6. Keep the rest of the response unchanged (including any existing errors)
+STEP-BY-STEP INSTRUCTIONS:
+1. Read the original response carefully
+2. Identify where you will add ONE new bias error
+3. Make ONLY that one change - add the bias error at that location
+4. Leave EVERYTHING else exactly as it is (including all existing errors, typos, mistakes, existing bias)
+5. Do NOT rewrite, improve, or fix anything
+6. Add the biased statement naturally within the existing response structure
 7. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
-   Example: [SUBTYPE: demographic_bias]
+
+EXAMPLE OF WHAT TO DO:
+Original: "The team performed well. They achieved their goals."
+Modified: "The team performed well. Older team members typically struggle with new technology, but they achieved their goals." [SUBTYPE: demographic_bias]
+(Added bias statement, left everything else unchanged)
+
+EXAMPLE OF WHAT NOT TO DO:
+Original: "The team performed well. They achieved their goals."
+WRONG: "The team performed excellently. Older team members typically struggle with new technology, but they achieved their goals."
+(Changed "well" to "excellently" - this is wrong! Only add the bias, don't improve other words)
 
 Your response should be:
 1. The modified response text (with original errors preserved + one new bias error added)
@@ -81,6 +115,14 @@ Your response should be:
 Modified Response:"""
 
     EXPLAINABILITY_ERROR_PROMPT = """You are an expert at modifying text to introduce explainability errors. Your task is to modify the given LLM response to introduce ONE clear explainability error.
+
+**ABSOLUTELY CRITICAL - READ THIS FIRST:**
+- DO NOT fix, correct, improve, or change ANY existing errors, mistakes, typos, or inaccuracies
+- DO NOT rewrite sentences to make them better
+- DO NOT correct grammar, spelling, factual errors, or unclear explanations that already exist
+- Your ONLY job is to ADD one new explainability error - nothing else should change
+- If you see an error in the original text, LEAVE IT EXACTLY AS IS
+- Treat the original text as SACRED - only add your one new explainability error
 
 Explainability Error Subtypes and Examples:
 - unclear_explanation: Use vague terms, ambiguous language, or unclear references without defining them.
@@ -95,15 +137,24 @@ Explainability Error Subtypes and Examples:
 Original Response:
 {response}
 
-CRITICAL INSTRUCTIONS:
-1. Make ONE targeted modification to introduce a clear explainability error
-2. The error should make the response harder to understand for a typical reader
-3. **PRESERVE ALL EXISTING ERRORS**: Do NOT fix, remove, or correct any existing errors (including unclear explanations, missing context, factual errors, or other issues) in the original response. Keep all original mistakes exactly as they are.
-4. **ADD a new explainability error**: Introduce ONE additional explainability error without changing existing content
-5. The modification should be noticeable (remove context, add jargon, make assumptions, etc.)
-6. Keep the rest of the response unchanged (including any existing errors)
+STEP-BY-STEP INSTRUCTIONS:
+1. Read the original response carefully
+2. Identify where you will add ONE new explainability error
+3. Make ONLY that one change - add the explainability error at that location
+4. Leave EVERYTHING else exactly as it is (including all existing errors, typos, mistakes, unclear explanations)
+5. Do NOT rewrite, improve, or fix anything
+6. The modification should be noticeable (remove context, add jargon, make assumptions, etc.)
 7. After the modified response, add a new line with: [SUBTYPE: <subtype_name>]
-   Example: [SUBTYPE: missing_context]
+
+EXAMPLE OF WHAT TO DO:
+Original: "The system uses machine learning. Users can adjust settings."
+Modified: "The system uses machine learning. Users can manipulate configuration parameters." [SUBTYPE: overly_complex]
+(Changed "adjust settings" to "manipulate configuration parameters", left "machine learning" unchanged)
+
+EXAMPLE OF WHAT NOT TO DO:
+Original: "The system uses machine learning. Users can adjust settings."
+WRONG: "The system uses advanced machine learning algorithms. Users can manipulate configuration parameters."
+(Changed "machine learning" to "advanced machine learning algorithms" - this is wrong! Only change "adjust settings", don't improve other parts)
 
 Your response should be:
 1. The modified response text (with original errors preserved + one new explainability error added)
@@ -150,7 +201,7 @@ Modified Response:"""
         """
         user_prompt = self.TRUSTWORTHINESS_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are an expert at modifying text to introduce errors. CRITICAL: You must preserve ALL existing errors in the original text. Do NOT fix, correct, or improve any existing mistakes. Only ADD one new error without changing anything else.",
+            system_prompt="You are an expert at modifying text to introduce errors. ABSOLUTELY CRITICAL: You must preserve ALL existing errors in the original text. Do NOT fix, correct, improve, or change ANY existing mistakes, typos, or errors. Your ONLY job is to ADD one new error - treat the original text as SACRED and leave everything else exactly as it is.",
             user_prompt=user_prompt
         )
         
@@ -167,7 +218,7 @@ Modified Response:"""
         """
         user_prompt = self.BIAS_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are an expert at identifying and introducing bias errors in text. CRITICAL: You must preserve ALL existing errors (including bias, factual errors, typos, etc.) in the original text. Do NOT fix, correct, or improve any existing mistakes. Only ADD one new bias error without changing anything else.",
+            system_prompt="You are an expert at identifying and introducing bias errors in text. ABSOLUTELY CRITICAL: You must preserve ALL existing errors (including bias, factual errors, typos, etc.) in the original text. Do NOT fix, correct, improve, or change ANY existing mistakes. Your ONLY job is to ADD one new bias error - treat the original text as SACRED and leave everything else exactly as it is.",
             user_prompt=user_prompt
         )
         
@@ -184,7 +235,7 @@ Modified Response:"""
         """
         user_prompt = self.EXPLAINABILITY_ERROR_PROMPT.format(response=response)
         messages = self.llm_provider.format_messages(
-            system_prompt="You are an expert at identifying and introducing explainability errors in text. CRITICAL: You must preserve ALL existing errors (including unclear explanations, factual errors, typos, etc.) in the original text. Do NOT fix, correct, or improve any existing mistakes. Only ADD one new explainability error without changing anything else.",
+            system_prompt="You are an expert at identifying and introducing explainability errors in text. ABSOLUTELY CRITICAL: You must preserve ALL existing errors (including unclear explanations, factual errors, typos, etc.) in the original text. Do NOT fix, correct, improve, or change ANY existing mistakes. Your ONLY job is to ADD one new explainability error - treat the original text as SACRED and leave everything else exactly as it is.",
             user_prompt=user_prompt
         )
         
