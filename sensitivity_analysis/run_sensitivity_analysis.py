@@ -55,7 +55,7 @@ K_MAX = 5  # Maximum number of errors to inject (0, 1, 2, 3, 4, 5)
 # Error subtypes to test
 ERROR_SUBTYPES = {
     "T": ["factual_error", "hallucination"],  # Trustworthiness subtypes
-    "B": ["demographic_bias", "gender_bias"],  # Bias subtypes
+    "B": ["demographic_bias", "gender_bias", "sycophancy_bias", "confirmation_bias"],  # Bias subtypes
     "E": ["unclear_explanation", "missing_context"]  # Explainability subtypes
 }
 

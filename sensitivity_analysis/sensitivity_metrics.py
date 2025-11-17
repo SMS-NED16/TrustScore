@@ -70,10 +70,12 @@ def calculate_monotonicity_metrics(
         sorted_k_results = sorted(k_results.items())
         
         # Extract target dimension scores
+        # Use quality scores (higher = better) instead of severity scores (higher = worse)
         target_scores = []
         for k, result in sorted_k_results:
             if "error" not in result:  # Skip failed results
-                score = result.get(f"agg_score_{target_dimension}", 0.0)
+                # Prefer quality scores, fallback to severity scores for backward compatibility
+                score = result.get(f"agg_quality_{target_dimension}", result.get(f"agg_score_{target_dimension}", 0.0))
                 target_scores.append((k, score))
         
         if len(target_scores) >= 2:
@@ -88,7 +90,8 @@ def calculate_monotonicity_metrics(
                 off_target_scores[dim][sample_id] = []
             for k, result in sorted_k_results:
                 if "error" not in result:
-                    score = result.get(f"agg_score_{dim}", 0.0)
+                    # Prefer quality scores, fallback to severity scores for backward compatibility
+                    score = result.get(f"agg_quality_{dim}", result.get(f"agg_score_{dim}", 0.0))
                     off_target_scores[dim][sample_id].append((k, score))
     
     # Calculate correlations for target dimension
@@ -105,7 +108,8 @@ def calculate_monotonicity_metrics(
     mean_scores = [statistics.mean(k_to_scores[k]) for k in k_values_sorted]
     
     # Calculate Kendall's tau and Spearman's rho
-    # Note: We expect NEGATIVE correlation (score decreases as k increases)
+    # Note: We expect NEGATIVE correlation (quality decreases as k increases)
+    # This is correct for quality scores (higher = better, so more errors = lower quality)
     if len(k_values_sorted) >= 2:
         kendall_result = kendalltau(k_values_sorted, mean_scores)
         spearman_result = spearmanr(k_values_sorted, mean_scores)
