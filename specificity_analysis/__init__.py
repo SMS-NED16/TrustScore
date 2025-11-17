@@ -24,7 +24,8 @@ __all__ = [
 ]
 
 # Step-by-step runner is available via import
-try:
-    from . import run_step_by_step
-except ImportError:
-    pass
+# Commented out to prevent automatic execution of module-level code
+# try:
+#     from . import run_step_by_step
+# except ImportError:
+#     pass
