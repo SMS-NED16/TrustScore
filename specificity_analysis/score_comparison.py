@@ -178,6 +178,7 @@ def compare_scores(
                 perturbed_map[key] = r
     
     # Match samples and merge baseline errors into perturbed results
+    # EXCEPT for PLACEBO - don't merge for placebo
     matched_pairs = []
     # Use union of both sets to find all possible matches
     all_keys = set(baseline_map.keys()) | set(perturbed_map.keys())
@@ -186,20 +187,29 @@ def compare_scores(
             baseline = baseline_map[key]
             perturbed = perturbed_map[key]
             
-            # Merge baseline errors into perturbed results
-            perturbed_merged = merge_baseline_errors_into_perturbed(
-                baseline, perturbed, config
-            )
+            # For PLACEBO, don't merge errors - use perturbed as-is
+            # For other error types, merge baseline errors into perturbed
+            if error_type == "PLACEBO":
+                # Use perturbed results without merging baseline errors
+                perturbed_to_use = perturbed
+            else:
+                # Merge baseline errors into perturbed results
+                perturbed_to_use = merge_baseline_errors_into_perturbed(
+                    baseline, perturbed, config
+                )
             
             matched_pairs.append({
                 "unique_dataset_id": key,  # Use unique_dataset_id as primary identifier
                 "sample_id": baseline.get("sample_id", ""),  # Also include sample_id for reference
                 "baseline": baseline,  # Keep original baseline
-                "perturbed": perturbed_merged  # Use merged perturbed
+                "perturbed": perturbed_to_use  # Use merged (or original for placebo) perturbed
             })
     
     print(f"Matched {len(matched_pairs)} samples for comparison")
-    print(f"  (Merged baseline errors into perturbed results before comparison)")
+    if error_type == "PLACEBO":
+        print("  (No error merging for PLACEBO - comparing perturbed as-is)")
+    else:
+        print("  (Merged baseline errors into perturbed results before comparison)")
     
     if len(matched_pairs) == 0:
         print("Warning: No matched pairs found for comparison!")
