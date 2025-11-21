@@ -249,7 +249,7 @@ else:
     print("Specificity analysis samples not found. Generating new samples...")
     samples = load_and_sample_dataset(
         dataset_name="summeval",
-        max_samples=10,
+        max_samples=100,
         random_seed=RANDOM_SEED
     )
     print(f"✓ Generated {len(samples)} samples")
