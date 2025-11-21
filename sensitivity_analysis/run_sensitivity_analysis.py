@@ -393,10 +393,10 @@ for error_type, subtypes in ERROR_SUBTYPES.items():
                         config=config
                     )
                     
-                        results_by_key[key] = result_path
-                        save_to_drive(result_path, timestamped_dir=drive_results_dir)
-                        
-                        print(f"✓ Inference complete for {key}")
+                    results_by_key[key] = result_path
+                    save_to_drive(result_path, timestamped_dir=drive_results_dir)
+                    
+                    print(f"✓ Inference complete for {key}")
                 
             except Exception as e:
                 print(f"✗ Error running inference for {key}: {str(e)}")
