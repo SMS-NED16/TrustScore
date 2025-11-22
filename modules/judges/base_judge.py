@@ -50,12 +50,13 @@ class BaseJudge(ABC):
         """
         pass
     
-    def batch_analyze_spans(self, span_records: List[tuple[LLMRecord, SpanTag]]) -> List[JudgeAnalysis]:
+    def batch_analyze_spans(self, span_records: List[tuple[LLMRecord, SpanTag]], seed: Optional[int] = None) -> List[JudgeAnalysis]:
         """
         Analyze multiple spans using batch processing for efficiency.
         
         Args:
             span_records: List of (LLMRecord, SpanTag) tuples to analyze
+            seed: Optional seed for deterministic generation (if None, uses natural randomness)
             
         Returns:
             List of JudgeAnalysis for each span
@@ -78,12 +79,15 @@ class BaseJudge(ABC):
         try:
             # Use batch_generate if available
             if hasattr(self.llm_provider, 'batch_generate'):
-                contents = self.llm_provider.batch_generate(messages_list)
+                contents = self.llm_provider.batch_generate(messages_list, seed=seed)
             else:
                 # Fallback to individual calls
                 contents = []
                 for messages in messages_list:
-                    content = self.llm_provider.generate(messages)
+                    if seed is not None:
+                        content = self.llm_provider.generate(messages, seed=seed)
+                    else:
+                        content = self.llm_provider.generate(messages)
                     contents.append(content)
             
             # Parse all responses

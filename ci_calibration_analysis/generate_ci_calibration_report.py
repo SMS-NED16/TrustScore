@@ -182,7 +182,14 @@ def generate_ci_calibration_report(
     
     # Define CI levels to analyze
     ci_levels = [
-        # Final TrustScore CIs
+        # Final TrustScore CIs (Quality space - primary analysis)
+        {
+            "name": "trust_score_quality",
+            "ci_field": "trust_quality_ci",
+            "point_field": "trust_quality",
+            "description": "Final TrustScore quality CI (quality space [0-100])"
+        },
+        # Final TrustScore CIs (Severity space - for backward compatibility)
         {
             "name": "trust_score_severity",
             "ci_field": "trust_score_ci",
@@ -196,6 +203,14 @@ def generate_ci_calibration_report(
             "description": "Final TrustScore confidence CI (probability space)"
         },
         # Category-level CIs (T only, since E and B will be 0)
+        # Quality space (primary analysis)
+        {
+            "name": "category_T_quality",
+            "ci_field": "agg_quality_T_ci",
+            "point_field": "agg_quality_T",
+            "description": "Category-level T quality CI (quality space [0-100])"
+        },
+        # Severity space (for backward compatibility)
         {
             "name": "category_T_severity",
             "ci_field": "agg_score_T_ci",

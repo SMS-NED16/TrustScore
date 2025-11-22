@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pipeline.orchestrator import TrustScorePipeline
 from config.settings import TrustScoreConfig, JudgeConfig, SpanTaggerConfig, LLMProvider, AggregationWeights
-from scripts.load_summeval import load_summeval_with_sources
+# Note: load_summeval_with_sources is imported lazily inside the function to avoid early CUDA initialization
 from specificity_analysis.dual_logger import DualLogger, initialize_logging, cleanup_logging
 
 
@@ -202,12 +202,16 @@ def format_result_for_storage(result, sample: Dict[str, Any], run_id: str, num_j
         # Final TrustScore CIs
         "trust_score": result.summary.trust_score,
         "trust_score_ci": format_ci(result.summary.trust_score_ci),
+        "trust_quality": result.summary.trust_quality,
+        "trust_quality_ci": format_ci(result.summary.trust_quality_ci),
         "trust_confidence": result.summary.trust_confidence,
         "trust_confidence_ci": format_ci(result.summary.trust_confidence_ci),
         
         # Category-level CIs (T only, since E and B will be 0)
         "agg_score_T": result.summary.agg_score_T,
         "agg_score_T_ci": format_ci(result.summary.agg_score_T_ci),
+        "agg_quality_T": result.summary.agg_quality_T,
+        "agg_quality_T_ci": format_ci(result.summary.agg_quality_T_ci),
         "agg_confidence_T": result.summary.agg_confidence_T,
         "agg_confidence_T_ci": format_ci(result.summary.agg_confidence_T_ci),
         
@@ -313,8 +317,9 @@ def run_ci_calibration_analysis(
         print(f"  - Model: {VLLM_MODEL}")
         print("=" * 70)
         
-        # Load SummEval data
+        # Load SummEval data (lazy import to avoid early CUDA initialization)
         print("\nLoading SummEval data...")
+        from scripts.load_summeval import load_summeval_with_sources
         all_samples = load_summeval_with_sources(summeval_path, max_samples=None)
         print(f"Loaded {len(all_samples)} samples")
         
@@ -413,19 +418,24 @@ def run_ci_calibration_analysis(
                             if "response" not in sample:
                                 raise KeyError(f"Sample missing 'response' field. Available keys: {list(sample.keys())}")
                             
-                            # Note: Judges use natural randomness (no seeds) for variability
+                            # Use generation_seed to ensure different judge outputs across repeats
+                            # Each repeat gets a different base seed, and each judge gets a unique derived seed
                             # Span tagger uses temperature=0.0 with seed=42 for deterministic results
                             # This ensures:
                             # - Same spans detected across repeats (deterministic span tagger)
-                            # - Different judge outputs across repeats (natural randomness with temperature=0.7)
+                            # - Different judge outputs across repeats (unique seeds per judge)
                             
-                            # Run pipeline (generation_seed only affects span tagger if needed)
+                            # Generate unique seed for this repeat to ensure different judge outputs
+                            # Use repeat number and sample index to create deterministic but unique seeds
+                            repeat_seed = random_seed + (sample_idx * 1000) + (repeat * 100)
+                            
+                            # Run pipeline with generation_seed (affects judge seeds, not span tagger)
                             result = pipeline.process(
                                 prompt=sample["prompt"],
                                 response=sample["response"],
                                 model=sample.get("model", "unknown"),
                                 generated_on=datetime.now(),
-                                generation_seed=None  # Judges use natural randomness
+                                generation_seed=repeat_seed  # Unique seed per repeat for judge variability
                             )
                             
                             # Format and save result

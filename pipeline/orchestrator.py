@@ -262,7 +262,8 @@ class TrustScorePipeline:
                 # vLLM: Use batching for efficiency
                 self._grade_spans_with_batching(
                     llm_record, span_list, aspect_judges, error_type,
-                    graded_spans, ensemble_config, error_config
+                    graded_spans, ensemble_config, error_config,
+                    generation_seed=generation_seed
                 )
             elif performance_config.enable_parallel_processing:
                 # Other providers: Use parallelization
@@ -289,26 +290,28 @@ class TrustScorePipeline:
     
     def _grade_spans_with_batching(self, llm_record: LLMRecord, span_list: List[tuple[str, Any]],
                                    aspect_judges: Dict[str, BaseJudge], error_type: str,
-                                   graded_spans: GradedSpans, ensemble_config, error_config) -> None:
+                                   graded_spans: GradedSpans, ensemble_config, error_config,
+                                   generation_seed: Optional[int] = None) -> None:
         """Grade spans using batching (optimized for vLLM)"""
         import random as rng
         
         print(f"[DEBUG Judge Calls] Using BATCHING for {error_type} spans (vLLM optimization)")
         
         # Process each judge separately (each judge batches all spans)
-        for judge_name, judge in aspect_judges.items():
+        for judge_idx, (judge_name, judge) in enumerate(aspect_judges.items()):
             try:
                 # Prepare span records for batching: (LLMRecord, SpanTag) tuples
                 span_records = [(llm_record, span) for _, span in span_list]
                 
-                # For vLLM batching, use a single random seed per batch (variability comes from temperature > 0)
-                # This is more efficient than individual calls
-                batch_seed = rng.randint(1, 2**31 - 1)
+                # Generate unique seed for each judge to ensure different outputs
+                # This is critical for CI calibration where we need independent judge outputs
+                if generation_seed is not None:
+                    judge_seed = generation_seed + (judge_idx * 1000)  # Derive judge-specific seed
+                else:
+                    judge_seed = rng.randint(1, 2**31 - 1)  # Random seed per judge
                 
-                # Batch analyze all spans for this judge
-                # Note: batch_analyze_spans doesn't support per-span seeds, but that's fine for vLLM
-                # since temperature > 0 provides natural variability
-                analyses = judge.batch_analyze_spans(span_records)
+                # Batch analyze all spans for this judge with unique seed
+                analyses = judge.batch_analyze_spans(span_records, seed=judge_seed)
                 
                 # Assign analyses to corresponding spans
                 for (span_id, span), analysis in zip(span_list, analyses):
