@@ -123,6 +123,11 @@ def patch_batch_generate():
         # Get temperature
         temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
         
+        # DEBUG: Log what we're receiving to diagnose why per-item seeds might not be used
+        print(f"[DEBUG vLLM] batch_generate called: seeds={seeds}, seed={seed}, temp={temp}, len(prompts)={len(prompts)}")
+        if seeds is not None:
+            print(f"[DEBUG vLLM] seeds check: len(seeds)={len(seeds)}, len(prompts)={len(prompts)}, temp={temp}, temp>0={temp > 0}, condition_met={seeds is not None and len(seeds) == len(prompts) and temp > 0}")
+        
         # If we have per-item seeds and temperature > 0, generate separately
         # This ensures each prompt gets its own seed for variability
         if seeds is not None and len(seeds) == len(prompts) and temp > 0:
@@ -144,6 +149,7 @@ def patch_batch_generate():
             return results
         
         # Otherwise, use batch generation with single seed (or None)
+        print(f"[DEBUG vLLM] Using batch generation (fallback): seed={seed}, temp={temp}, reason: seeds={seeds is None}, len_match={seeds is None or len(seeds) != len(prompts) if seeds is not None else 'N/A'}, temp_ok={temp > 0}")
         sampling_params = self.sampling_params
         if kwargs or seed is not None:
             if temp > 0:
