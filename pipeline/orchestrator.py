@@ -315,6 +315,7 @@ class TrustScorePipeline:
                         generation_seed + (judge_idx * 10000) + (span_idx * 100)
                         for span_idx in range(len(span_list))
                     ]
+                    print(f"[DEBUG Seeds] Judge {judge_idx}, generation_seed={generation_seed}, span_seeds={span_seeds}")
                     # Batch analyze all spans for this judge with unique seeds per span
                     analyses = judge.batch_analyze_spans(span_records, seeds=span_seeds)
                 else:

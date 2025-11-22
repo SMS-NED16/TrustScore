@@ -154,6 +154,7 @@ class VLLMProvider(BaseLLMProvider):
         # vLLM's batch_generate uses ONE SamplingParams for all prompts, so we need
         # to generate separately when we want different seeds per item
         if seeds is not None and len(seeds) == len(prompts) and temp > 0:
+            print(f"[DEBUG vLLM] Using per-item seeds: {seeds} for {len(prompts)} prompts")
             # Generate each prompt separately with its unique seed
             results = []
             for prompt, item_seed in zip(prompts, seeds):
