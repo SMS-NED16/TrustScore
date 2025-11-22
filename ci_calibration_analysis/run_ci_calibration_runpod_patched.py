@@ -67,19 +67,35 @@ def patch_batch_analyze_spans():
             # Use batch_generate if available
             if hasattr(self.llm_provider, 'batch_generate'):
                 # If seeds list provided, use it; otherwise fall back to single seed
+                # Pass temperature from judge config to ensure correct value (0.7 for judges)
                 if seeds is not None:
-                    contents = self.llm_provider.batch_generate(messages_list, seeds=seeds)
+                    contents = self.llm_provider.batch_generate(
+                        messages_list, 
+                        seeds=seeds,
+                        temperature=self.config.temperature
+                    )
                 else:
-                    contents = self.llm_provider.batch_generate(messages_list, seed=seed)
+                    contents = self.llm_provider.batch_generate(
+                        messages_list, 
+                        seed=seed,
+                        temperature=self.config.temperature
+                    )
             else:
                 # Fallback to individual calls
                 contents = []
                 for i, messages in enumerate(messages_list):
                     item_seed = seeds[i] if seeds is not None else seed
                     if item_seed is not None:
-                        content = self.llm_provider.generate(messages, seed=item_seed)
+                        content = self.llm_provider.generate(
+                            messages, 
+                            seed=item_seed,
+                            temperature=self.config.temperature
+                        )
                     else:
-                        content = self.llm_provider.generate(messages)
+                        content = self.llm_provider.generate(
+                            messages,
+                            temperature=self.config.temperature
+                        )
                     contents.append(content)
             
             # Parse all responses
