@@ -238,7 +238,7 @@ def patch_grade_spans_with_batching():
         for span_id, span in span_list:
             if span_id in graded_spans.spans:
                 graded_span = graded_spans.spans[span_id]
-                successful_analyses = len(graded_span.judge_analyses)
+                successful_analyses = len(graded_span.analysis)
                 
                 if successful_analyses >= ensemble_config.min_judges_required:
                     if ensemble_config.require_consensus:
