@@ -64,6 +64,14 @@ ERROR_SUBTYPES = {
 DRIVE_MOUNT_PATH = "/content/drive"
 DRIVE_RESULTS_BASE = "/content/drive/MyDrive/TrustScore_Results"
 
+# ============================================================================
+# CHECKPOINT/RESUME CONFIGURATION
+# ============================================================================
+# Set to a specific timestamp directory to resume from a checkpoint
+# Example: "sensitivity_analysis_20251121_042854"
+# Set to None to create a new run with a new timestamp
+CHECKPOINT_DIR = "sensitivity_analysis_20251121_042854"  # Set to None for new run
+
 
 def mount_google_drive():
     """Mount Google Drive in Colab."""
@@ -75,6 +83,23 @@ def mount_google_drive():
         print(f"✓ Results base directory: {DRIVE_RESULTS_BASE}")
         return True
     return False
+
+
+def get_drive_path(filename: str, timestamped_dir: str) -> str:
+    """
+    Construct Google Drive path with double-nested structure.
+    
+    Structure: DRIVE_RESULTS_BASE/timestamped_dir/timestamped_dir/filename
+    This matches the structure created by save_to_drive().
+    
+    Args:
+        filename: Name of the file (e.g., "sampled_dataset.jsonl")
+        timestamped_dir: The timestamped directory name (e.g., "sensitivity_analysis_20251121_042854")
+        
+    Returns:
+        Full Google Drive path
+    """
+    return os.path.join(DRIVE_RESULTS_BASE, timestamped_dir, timestamped_dir, filename)
 
 
 def save_to_drive(local_path: str, drive_path: Optional[str] = None, timestamped_dir: Optional[str] = None):
@@ -178,22 +203,44 @@ def create_vllm_error_injector():
 
 
 # Run sensitivity analysis pipeline on import
-# Setup output directory with timestamp
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-output_dir = f"results/sensitivity_analysis_{timestamp}"
+# Setup output directory with timestamp or checkpoint
+if CHECKPOINT_DIR:
+    # Resume from checkpoint
+    output_dir = f"results/{CHECKPOINT_DIR}"
+    drive_results_dir = CHECKPOINT_DIR
+    print(f"🔄 RESUMING FROM CHECKPOINT: {CHECKPOINT_DIR}")
+    
+    # Validate checkpoint exists in Google Drive (double-nested structure)
+    if IN_COLAB:
+        checkpoint_drive_dir = os.path.join(DRIVE_RESULTS_BASE, CHECKPOINT_DIR, CHECKPOINT_DIR)
+        if not os.path.exists(checkpoint_drive_dir):
+            raise FileNotFoundError(
+                f"Checkpoint directory not found in Google Drive: {checkpoint_drive_dir}\n"
+                f"Expected structure: {DRIVE_RESULTS_BASE}/{CHECKPOINT_DIR}/{CHECKPOINT_DIR}/"
+            )
+        print(f"✓ Checkpoint directory found in Google Drive: {checkpoint_drive_dir}")
+    else:
+        # Fallback to local check if not in Colab
+        if not os.path.exists(output_dir):
+            raise FileNotFoundError(f"Checkpoint directory not found: {output_dir}")
+        print(f"✓ Checkpoint directory found locally: {output_dir}")
+else:
+    # Create new run
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = f"results/sensitivity_analysis_{timestamp}"
+    drive_results_dir = f"sensitivity_analysis_{timestamp}"
+
 os.makedirs(output_dir, exist_ok=True)
 
-# Set up Google Drive path with timestamp
+# Set up Google Drive path
 if IN_COLAB:
-    drive_results_dir = f"sensitivity_analysis_{timestamp}"
-    DRIVE_RESULTS_PATH = os.path.join(DRIVE_RESULTS_BASE, drive_results_dir)
+    DRIVE_RESULTS_PATH = os.path.join(DRIVE_RESULTS_BASE, drive_results_dir, drive_results_dir)
 else:
-    drive_results_dir = None
     DRIVE_RESULTS_PATH = None
 
 print(f"Results will be saved to: {output_dir}")
 if IN_COLAB and DRIVE_RESULTS_PATH:
-    print(f"Google Drive path: {DRIVE_RESULTS_PATH}")
+    print(f"Google Drive path (double-nested): {DRIVE_RESULTS_PATH}")
 
 # Initialize dual logging (console + file)
 logger = None
@@ -227,26 +274,60 @@ if IN_COLAB:
 print("=" * 70)
 
 # ============================================================================
-# STEP 1: Load samples (reuse from specificity analysis or generate new)
+# STEP 1: Load samples (from checkpoint, specificity analysis, or generate new)
 # ============================================================================
 print("\n" + "=" * 70)
 print("STEP 1: Loading Samples")
 print("=" * 70)
 
-# Try to load from specificity analysis first
-specificity_samples_path = "results/specificity_analysis/sampled_dataset.jsonl"
-if os.path.exists(specificity_samples_path):
-    print(f"Loading samples from specificity analysis: {specificity_samples_path}")
-    samples = []
-    with open(specificity_samples_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                samples.append(json.loads(line))
-    print(f"✓ Loaded {len(samples)} samples from specificity analysis")
-else:
-    # Generate new samples
-    print("Specificity analysis samples not found. Generating new samples...")
+samples = None
+
+# Priority 1: Load from checkpoint directory (if resuming)
+if CHECKPOINT_DIR:
+    # Check Google Drive path (double-nested structure)
+    if IN_COLAB:
+        checkpoint_samples_path = get_drive_path("sampled_dataset.jsonl", CHECKPOINT_DIR)
+        print(f"🔍 Checking for samples in Google Drive: {checkpoint_samples_path}")
+        if os.path.exists(checkpoint_samples_path):
+            print(f"✓ Found samples in Google Drive, loading...")
+            samples = []
+            with open(checkpoint_samples_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        samples.append(json.loads(line))
+            print(f"✓ Loaded {len(samples)} samples from Google Drive checkpoint")
+        else:
+            print(f"⚠ Samples not found in Google Drive: {checkpoint_samples_path}")
+    else:
+        # Fallback to local if not in Colab
+        checkpoint_samples_path = os.path.join(output_dir, "sampled_dataset.jsonl")
+        if os.path.exists(checkpoint_samples_path):
+            print(f"Loading samples from local checkpoint: {checkpoint_samples_path}")
+            samples = []
+            with open(checkpoint_samples_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        samples.append(json.loads(line))
+            print(f"✓ Loaded {len(samples)} samples from local checkpoint")
+
+# Priority 2: Load from specificity analysis
+if samples is None:
+    specificity_samples_path = "results/specificity_analysis/sampled_dataset.jsonl"
+    if os.path.exists(specificity_samples_path):
+        print(f"Loading samples from specificity analysis: {specificity_samples_path}")
+        samples = []
+        with open(specificity_samples_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    samples.append(json.loads(line))
+        print(f"✓ Loaded {len(samples)} samples from specificity analysis")
+
+# Priority 3: Generate new samples
+if samples is None:
+    print("No existing samples found. Generating new samples...")
     samples = load_and_sample_dataset(
         dataset_name="summeval",
         max_samples=100,
@@ -254,10 +335,11 @@ else:
     )
     print(f"✓ Generated {len(samples)} samples")
 
-# Save samples for reference
+# Save samples for reference (only if not resuming or if file doesn't exist)
 samples_path = os.path.join(output_dir, "sampled_dataset.jsonl")
-save_samples(samples, samples_path)
-save_to_drive(samples_path, timestamped_dir=drive_results_dir)
+if not os.path.exists(samples_path):
+    save_samples(samples, samples_path)
+    save_to_drive(samples_path, timestamped_dir=drive_results_dir)
 
 if samples:
     print("\nFirst sample preview:")
@@ -299,14 +381,32 @@ for error_type, subtypes in ERROR_SUBTYPES.items():
         
         for k in range(0, K_MAX + 1):
             try:
-                dataset_path = os.path.join(output_dir, f"{error_type}_{subtype}_k{k}_perturbed.jsonl")
+                dataset_filename = f"{error_type}_{subtype}_k{k}_perturbed.jsonl"
+                dataset_path = os.path.join(output_dir, dataset_filename)
                 
-                # Check if dataset already exists
-                if os.path.exists(dataset_path):
-                    print(f"  Loading existing {error_type}_{subtype}_k{k} dataset from {dataset_path}...")
-                    # Load existing dataset
+                # Check if dataset already exists in Google Drive (if checkpointing)
+                dataset_exists = False
+                drive_dataset_path = None
+                
+                if CHECKPOINT_DIR and IN_COLAB:
+                    drive_dataset_path = get_drive_path(dataset_filename, drive_results_dir)
+                    dataset_exists = os.path.exists(drive_dataset_path)
+                    if dataset_exists:
+                        print(f"  🔍 Found {error_type}_{subtype}_k{k} in Google Drive: {drive_dataset_path}")
+                
+                # Also check local path (for new runs or fallback)
+                if not dataset_exists:
+                    dataset_exists = os.path.exists(dataset_path)
+                    if dataset_exists:
+                        print(f"  🔍 Found {error_type}_{subtype}_k{k} locally: {dataset_path}")
+                
+                if dataset_exists:
+                    print(f"  ⏭️  Skipping {error_type}_{subtype}_k{k} - dataset already exists")
+                    # Load existing dataset for inference
+                    load_path = drive_dataset_path if drive_dataset_path and os.path.exists(drive_dataset_path) else dataset_path
+                    print(f"  📂 Loading from: {load_path}")
                     k_samples = []
-                    with open(dataset_path, 'r', encoding='utf-8') as f:
+                    with open(load_path, 'r', encoding='utf-8') as f:
                         for line in f:
                             line = line.strip()
                             if line:
@@ -314,7 +414,7 @@ for error_type, subtypes in ERROR_SUBTYPES.items():
                     datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
                     print(f"  ✓ Loaded {len(k_samples)} samples from existing dataset")
                 else:
-                    print(f"  Creating {error_type}_{subtype}_k{k} dataset...")
+                    print(f"  🔨 Creating {error_type}_{subtype}_k{k} dataset...")
                     
                     if k == 0:
                         # k=0: Use original responses (no errors)
@@ -338,10 +438,9 @@ for error_type, subtypes in ERROR_SUBTYPES.items():
                         )
                         datasets_by_key[f"{error_type}_{subtype}_k{k}"] = k_samples
                     
-                        # Save dataset
-                        save_samples(k_samples, dataset_path)
-                        save_to_drive(dataset_path, timestamped_dir=drive_results_dir)
-                    
+                    # Save dataset
+                    save_samples(k_samples, dataset_path)
+                    save_to_drive(dataset_path, timestamped_dir=drive_results_dir)
                     print(f"  ✓ Saved {len(k_samples)} samples to {dataset_path}")
                 
             except Exception as e:
@@ -374,14 +473,31 @@ for error_type, subtypes in ERROR_SUBTYPES.items():
                 continue
             
             try:
-                result_path = os.path.join(output_dir, f"{error_type}_{subtype}_k{k}_results.jsonl")
+                result_filename = f"{error_type}_{subtype}_k{k}_results.jsonl"
+                result_path = os.path.join(output_dir, result_filename)
                 
-                # Check if results already exist
-                if os.path.exists(result_path):
-                    print(f"  Skipping {key} - results already exist at {result_path}")
-                    results_by_key[key] = result_path
+                # Check if results already exist in Google Drive (if checkpointing)
+                result_exists = False
+                drive_result_path = None
+                
+                if CHECKPOINT_DIR and IN_COLAB:
+                    drive_result_path = get_drive_path(result_filename, drive_results_dir)
+                    result_exists = os.path.exists(drive_result_path)
+                    if result_exists:
+                        print(f"  🔍 Found {key} results in Google Drive: {drive_result_path}")
+                
+                # Also check local path (for new runs or fallback)
+                if not result_exists:
+                    result_exists = os.path.exists(result_path)
+                    if result_exists:
+                        print(f"  🔍 Found {key} results locally: {result_path}")
+                
+                if result_exists:
+                    print(f"  ⏭️  Skipping {key} - results already exist")
+                    # Use the path where results were found
+                    results_by_key[key] = drive_result_path if drive_result_path and os.path.exists(drive_result_path) else result_path
                 else:
-                    print(f"\nProcessing {key} ({len(dataset)} samples)...")
+                    print(f"\n🔨 Processing {key} ({len(dataset)} samples)...")
                     
                     # Run TrustScore inference
                     run_sensitivity_inference(
