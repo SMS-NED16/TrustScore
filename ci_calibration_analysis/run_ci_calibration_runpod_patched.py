@@ -127,10 +127,7 @@ def patch_batch_generate():
         # This ensures each prompt gets its own seed for variability
         if seeds is not None and len(seeds) == len(prompts) and temp > 0:
             debug_msg = f"[DEBUG vLLM] Using per-item seeds: {seeds} for {len(prompts)} prompts"
-            print(debug_msg)
-            # Also log to file if logger is available (will be set by the analysis function)
-            if hasattr(self, '_logger'):
-                self._logger.info(debug_msg)
+            print(debug_msg)  # DualLogger will capture this to file automatically
             # Generate each prompt separately with its unique seed
             results = []
             for i, (prompt, item_seed) in enumerate(zip(prompts, seeds)):
@@ -143,8 +140,7 @@ def patch_batch_generate():
                 outputs = self.llm.generate([prompt], sampling_params)
                 result_text = outputs[0].outputs[0].text.strip()
                 results.append(result_text)
-                if hasattr(self, '_logger'):
-                    self._logger.debug(f"[DEBUG vLLM] Prompt {i} with seed {item_seed}: generated {len(result_text)} chars")
+                print(f"[DEBUG vLLM] Prompt {i} with seed {item_seed}: generated {len(result_text)} chars")
             return results
         
         # Otherwise, use batch generation with single seed (or None)
@@ -201,10 +197,7 @@ def patch_grade_spans_with_batching():
                         for span_idx in range(len(span_list))
                     ]
                     debug_msg = f"[DEBUG Seeds] Judge {judge_idx}, generation_seed={generation_seed}, span_seeds={span_seeds}"
-                    print(debug_msg)
-                    # Also log to file if logger is available (will be set by the analysis function)
-                    if hasattr(self, '_logger'):
-                        self._logger.info(debug_msg)
+                    print(debug_msg)  # DualLogger will capture this to file automatically
                     # Batch analyze all spans for this judge with unique seeds per span
                     analyses = judge.batch_analyze_spans(span_records, seeds=span_seeds)
                 else:
@@ -493,22 +486,10 @@ def run_ci_calibration_analysis(
     full_output_dir = os.path.join(output_dir, results_subdir)
     os.makedirs(full_output_dir, exist_ok=True)
     
-    # Initialize logging
+    # Initialize logging (DualLogger redirects stdout to both console and file)
     logger = initialize_logging(full_output_dir, "execution.log")
     
-    # Store logger reference in pipeline classes for patch functions to use
-    # This allows debug statements in patches to also log to file
     try:
-        # Try to set logger on pipeline instance (will be created later)
-        # We'll set it after pipeline creation
-        pass
-    except:
-        pass
-    
-    try:
-        logger.info("=" * 70)
-        logger.info("CI CALIBRATION ANALYSIS (RunPod - Patched)")
-        logger.info("=" * 70)
         print("=" * 70)
         print("CI CALIBRATION ANALYSIS (RunPod - Patched)")
         print("=" * 70)
@@ -599,16 +580,8 @@ def run_ci_calibration_analysis(
                     # Initialize pipeline
                     pipeline = TrustScorePipeline(config=config, api_key=api_key, use_mock=use_mock)
                     
-                    # Store logger reference in pipeline and providers for patch functions to use
-                    pipeline._logger = logger
-                    # Also store logger in vLLM provider instances (they're cached, so we need to find them)
-                    if hasattr(pipeline, 'span_tagger') and hasattr(pipeline.span_tagger, 'llm_provider'):
-                        pipeline.span_tagger.llm_provider._logger = logger
-                    for judge_type in ['trustworthiness', 'bias', 'explainability']:
-                        if hasattr(pipeline, 'judges') and judge_type in pipeline.judges:
-                            for judge in pipeline.judges[judge_type].values():
-                                if hasattr(judge, 'llm_provider'):
-                                    judge.llm_provider._logger = logger
+                    # Note: DualLogger already captures all print() statements to file,
+                    # so we don't need to store logger references
                     
                     for repeat in tqdm(range(1, num_repeats + 1), desc=f"  {num_judges} judge(s), repeats", unit="repeat"):
                         run_counter += 1
@@ -625,7 +598,7 @@ def run_ci_calibration_analysis(
                             
                             # Generate unique seed for this repeat to ensure different judge outputs
                             repeat_seed = random_seed + (sample_idx * 1000) + (repeat * 100)
-                            logger.info(f"Run {run_id}: Using generation_seed={repeat_seed}")
+                            print(f"[INFO] Run {run_id}: Using generation_seed={repeat_seed}")
                             
                             # Run pipeline with generation_seed (affects judge seeds, not span tagger)
                             result = pipeline.process(
@@ -645,16 +618,16 @@ def run_ci_calibration_analysis(
                             f.flush()
                             
                             # Log key metrics for debugging
-                            logger.info(f"Run {run_id} completed: trust_score={result_data['trust_score']:.3f}, "
-                                      f"agg_score_T={result_data['agg_score_T']:.3f}, "
-                                      f"num_spans={result_data['metadata']['num_spans_detected']}")
+                            print(f"[INFO] Run {run_id} completed: trust_score={result_data['trust_score']:.3f}, "
+                                  f"agg_score_T={result_data['agg_score_T']:.3f}, "
+                                  f"num_spans={result_data['metadata']['num_spans_detected']}")
                             
                         except Exception as e:
                             error_msg = f"Error in run {run_id}: {str(e)}"
                             print(f"\n  ✗ {error_msg}")
-                            logger.error(error_msg)
                             import traceback
-                            logger.error(traceback.format_exc())
+                            print(f"[ERROR] {error_msg}")
+                            print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
                             # Save error record
                             error_data = {
                                 "item_id": sample.get("unique_dataset_id", "unknown"),
