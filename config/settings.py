@@ -47,6 +47,7 @@ class JudgeConfig(LLMConfig):
     """Configuration for individual judges"""
     name: str
     enabled: bool = Field(default=True)
+    seed: Optional[int] = Field(default=None, description="Optional seed for generation (None = use generation_seed derivation)")
 
 
 class AggregationWeights(BaseModel):

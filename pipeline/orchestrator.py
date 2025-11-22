@@ -303,15 +303,25 @@ class TrustScorePipeline:
                 # Prepare span records for batching: (LLMRecord, SpanTag) tuples
                 span_records = [(llm_record, span) for _, span in span_list]
                 
-                # Generate unique seed for each judge to ensure different outputs
-                # This is critical for CI calibration where we need independent judge outputs
+                # Derive unique seeds per judge AND per span item
+                # Formula: base_seed + (judge_idx * 10000) + (span_idx * 100)
+                # This ensures:
+                # - Different seeds across judges (judge_idx offset)
+                # - Different seeds across batch items (span_idx offset)
+                # - Controlled/reproducible when generation_seed is provided
                 if generation_seed is not None:
-                    judge_seed = generation_seed + (judge_idx * 1000)  # Derive judge-specific seed
+                    # Derive unique seed for each span in the batch (reproducible)
+                    span_seeds = [
+                        generation_seed + (judge_idx * 10000) + (span_idx * 100)
+                        for span_idx in range(len(span_list))
+                    ]
+                    # Batch analyze all spans for this judge with unique seeds per span
+                    analyses = judge.batch_analyze_spans(span_records, seeds=span_seeds)
                 else:
+                    # Backward compatibility: use single random seed per judge (old behavior)
+                    # This preserves the behavior for sensitivity/specificity analyses
                     judge_seed = rng.randint(1, 2**31 - 1)  # Random seed per judge
-                
-                # Batch analyze all spans for this judge with unique seed
-                analyses = judge.batch_analyze_spans(span_records, seed=judge_seed)
+                    analyses = judge.batch_analyze_spans(span_records, seed=judge_seed)
                 
                 # Assign analyses to corresponding spans
                 for (span_id, span), analysis in zip(span_list, analyses):

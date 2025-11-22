@@ -50,13 +50,16 @@ class BaseJudge(ABC):
         """
         pass
     
-    def batch_analyze_spans(self, span_records: List[tuple[LLMRecord, SpanTag]], seed: Optional[int] = None) -> List[JudgeAnalysis]:
+    def batch_analyze_spans(self, span_records: List[tuple[LLMRecord, SpanTag]], 
+                           seed: Optional[int] = None, 
+                           seeds: Optional[List[int]] = None) -> List[JudgeAnalysis]:
         """
         Analyze multiple spans using batch processing for efficiency.
         
         Args:
             span_records: List of (LLMRecord, SpanTag) tuples to analyze
-            seed: Optional seed for deterministic generation (if None, uses natural randomness)
+            seed: Single seed for all spans (for backward compatibility)
+            seeds: List of seeds, one per span (takes precedence over seed)
             
         Returns:
             List of JudgeAnalysis for each span
@@ -79,13 +82,18 @@ class BaseJudge(ABC):
         try:
             # Use batch_generate if available
             if hasattr(self.llm_provider, 'batch_generate'):
-                contents = self.llm_provider.batch_generate(messages_list, seed=seed)
+                # If seeds list provided, use it; otherwise fall back to single seed
+                if seeds is not None:
+                    contents = self.llm_provider.batch_generate(messages_list, seeds=seeds)
+                else:
+                    contents = self.llm_provider.batch_generate(messages_list, seed=seed)
             else:
                 # Fallback to individual calls
                 contents = []
-                for messages in messages_list:
-                    if seed is not None:
-                        content = self.llm_provider.generate(messages, seed=seed)
+                for i, messages in enumerate(messages_list):
+                    item_seed = seeds[i] if seeds is not None else seed
+                    if item_seed is not None:
+                        content = self.llm_provider.generate(messages, seed=item_seed)
                     else:
                         content = self.llm_provider.generate(messages)
                     contents.append(content)

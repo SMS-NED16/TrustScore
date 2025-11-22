@@ -124,41 +124,73 @@ class VLLMProvider(BaseLLMProvider):
         response = outputs[0].outputs[0].text
         return response.strip()
     
-    def batch_generate(self, messages_list: List[List[Dict[str, str]]], **kwargs) -> List[str]:
-        """Generate responses for multiple message sets using batched inference"""
+    def batch_generate(self, messages_list: List[List[Dict[str, str]]], 
+                      seed: Optional[int] = None,
+                      seeds: Optional[List[int]] = None,
+                      **kwargs) -> List[str]:
+        """
+        Generate responses for multiple message sets using batched inference.
+        
+        Args:
+            messages_list: List of message sets
+            seed: Single seed for all prompts (for backward compatibility)
+            seeds: List of seeds, one per prompt (takes precedence over seed)
+            **kwargs: Additional generation parameters
+        
+        Returns:
+            List of generated text responses
+        """
         if not self.llm:
             raise ValueError("vLLM model not loaded")
         
         # Convert all messages to prompts
         prompts = [self._format_messages_to_prompt(messages) for messages in messages_list]
         
+        # Get temperature
+        temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
+        
+        # If we have per-item seeds and temperature > 0, generate separately
+        # This ensures each prompt gets its own seed for variability
+        # vLLM's batch_generate uses ONE SamplingParams for all prompts, so we need
+        # to generate separately when we want different seeds per item
+        if seeds is not None and len(seeds) == len(prompts) and temp > 0:
+            # Generate each prompt separately with its unique seed
+            results = []
+            for prompt, item_seed in zip(prompts, seeds):
+                sampling_params = SamplingParams(
+                    temperature=temp,
+                    max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
+                    top_p=kwargs.get('top_p', 0.95),
+                    seed=item_seed,  # Unique seed per prompt
+                )
+                outputs = self.llm.generate([prompt], sampling_params)
+                results.append(outputs[0].outputs[0].text.strip())
+            return results
+        
+        # Otherwise, use batch generation with single seed (or None)
         # Override sampling params if provided
         sampling_params = self.sampling_params
-        if kwargs:
-            temp = kwargs.get('temperature', self.config.temperature if hasattr(self.config, 'temperature') else 0.0)
-            # For temperature > 0: use provided seed (random for variability) or None for natural randomness
-            # For temperature = 0: use seed 42 for deterministic results (span tagger)
-            # This ensures judges produce different outputs even with the same model when using random seeds
+        if kwargs or seed is not None:
             if temp > 0:
-                # For judges: use provided seed (which is random) or None for natural randomness
-                seed = kwargs.get('seed', None)  # Use provided seed (can be random) or None
+                # For judges: use provided seed or None for natural randomness
+                final_seed = seed if seed is not None else None
             elif 'seed' in kwargs:
-                seed = kwargs.get('seed')  # Allow explicit seed for temp=0 (span tagger)
+                final_seed = kwargs.get('seed')
             else:
-                seed = 42  # Default deterministic seed for temp=0
+                final_seed = 42  # Default deterministic seed for temp=0
+            
             sampling_params = SamplingParams(
                 temperature=temp,
                 max_tokens=kwargs.get('max_tokens', self.config.max_tokens if hasattr(self.config, 'max_tokens') else 2000),
                 top_p=kwargs.get('top_p', 0.95 if temp > 0 else 1.0),
-                seed=seed,  # Random seed for temp>0 (variability), deterministic seed for temp=0
+                seed=final_seed,
             )
         
         # Batch generate
         outputs = self.llm.generate(prompts, sampling_params)
         
         # Extract text from outputs
-        responses = [output.outputs[0].text.strip() for output in outputs]
-        return responses
+        return [output.outputs[0].text.strip() for output in outputs]
     
     def _format_messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
         """Format messages for LLM prompt using chat template"""
