@@ -19,6 +19,7 @@ from tqdm import tqdm
 import random
 import torch
 import numpy as np
+import time
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -309,6 +310,114 @@ VLLM_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 MAX_TOKENS = 4096  # Increased to ensure complete JSON responses (consistent with sensitivity/specificity analyses)
 DEVICE = "cuda"
 
+# Checkpoint/Resume configuration
+# Set to a specific timestamp directory to resume from a checkpoint
+# Example: "ci_calibration_results_20251123_000019"
+# Set to None to create a new run with a new timestamp
+CHECKPOINT_DIR = None  # Set to checkpoint directory name to resume, or None for new run
+
+
+def process_with_cached_spans(
+    pipeline: TrustScorePipeline,
+    prompt: str,
+    response: str,
+    model: str,
+    generated_on: datetime,
+    cached_spans: Optional[Any],
+    generation_seed: Optional[int] = None
+) -> Any:
+    """
+    Process a sample through the pipeline, reusing cached spans if available.
+    
+    This optimization caches span tagging results since they're deterministic
+    (temperature=0.0), allowing reuse across multiple runs of the same sample.
+    
+    Args:
+        pipeline: TrustScorePipeline instance
+        prompt: Input prompt
+        response: LLM response
+        model: Model name
+        generated_on: Generation timestamp
+        cached_spans: Cached SpansLevelTags object (None if not cached)
+        generation_seed: Optional seed for judge variability
+        
+    Returns:
+        AggregatedOutput: Final TrustScore analysis
+    """
+    from models.llm_record import LLMRecord
+    
+    # Step 1: Create LLMRecord
+    llm_record = pipeline._create_llm_record(prompt, response, model, generated_on)
+    
+    # Step 2: Tag spans (use cache if available)
+    if cached_spans is not None:
+        spans_tags = cached_spans
+        # Count spans by type for debugging
+        span_counts = {"T": 0, "B": 0, "E": 0}
+        for span_id, span in spans_tags.spans.items():
+            span_counts[span.type.value] = span_counts.get(span.type.value, 0) + 1
+        print(f"[Pipeline Step 2/4] Span Annotation: Using cached spans ({len(spans_tags.spans)} span(s))")
+        print(f"  - Trustworthiness (T): {span_counts['T']}")
+        print(f"  - Bias (B): {span_counts['B']}")
+        print(f"  - Explainability (E): {span_counts['E']}")
+    else:
+        print("[Pipeline Step 2/4] Span Annotation: Tagging error spans...")
+        spans_tags = pipeline.span_tagger.tag_spans(llm_record)
+        # Count spans by type for debugging
+        span_counts = {"T": 0, "B": 0, "E": 0}
+        for span_id, span in spans_tags.spans.items():
+            span_counts[span.type.value] = span_counts.get(span.type.value, 0) + 1
+        print(f"[Pipeline Step 2/4] Span Annotation Complete: Detected {len(spans_tags.spans)} error span(s)")
+        print(f"  - Trustworthiness (T): {span_counts['T']}")
+        print(f"  - Bias (B): {span_counts['B']}")
+        print(f"  - Explainability (E): {span_counts['E']}")
+    
+    # Step 3: Grade spans with judges
+    print(f"[Pipeline Step 3/4] Span Grading: Analyzing {len(spans_tags.spans)} span(s) with judges...")
+    graded_spans = pipeline._grade_spans(llm_record, spans_tags, generation_seed=generation_seed)
+    print(f"[Pipeline Step 3/4] Span Grading Complete: Successfully graded {len(graded_spans.spans)} span(s)")
+    
+    # Step 4: Aggregate scores
+    print("[Pipeline Step 4/4] Aggregation: Computing final TrustScore...")
+    aggregated_output = pipeline.aggregator.aggregate(llm_record, graded_spans)
+    print(f"[Pipeline Complete] Final TrustScore: {aggregated_output.summary.trust_score:.3f}")
+    
+    return aggregated_output
+
+
+def load_existing_results(results_file: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Load existing results from checkpoint file.
+    
+    Args:
+        results_file: Path to calibration_results.jsonl file
+        
+    Returns:
+        Dictionary mapping (item_id, num_judges, repeat) -> result_data
+    """
+    completed_runs = {}
+    if os.path.exists(results_file):
+        print(f"Loading existing results from: {results_file}")
+        with open(results_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        result = json.loads(line)
+                        # Skip error records
+                        if "error" in result:
+                            continue
+                        item_id = result.get("item_id")
+                        num_judges = result.get("num_judges")
+                        repeat = result.get("repeat")
+                        if item_id and num_judges is not None and repeat is not None:
+                            key = (item_id, num_judges, repeat)
+                            completed_runs[key] = result
+                    except json.JSONDecodeError:
+                        continue
+        print(f"  ✓ Loaded {len(completed_runs)} completed runs from checkpoint")
+    return completed_runs
+
 
 def create_config_for_judge_count(num_judges: int) -> TrustScoreConfig:
     """
@@ -476,7 +585,8 @@ def run_ci_calibration_analysis(
     num_repeats: int = NUM_REPEATS,
     use_mock: bool = False,
     api_key: Optional[str] = None,
-    random_seed: int = 42
+    random_seed: int = 42,
+    checkpoint_dir: Optional[str] = CHECKPOINT_DIR
 ) -> str:
     """
     Run CI calibration analysis.
@@ -490,6 +600,7 @@ def run_ci_calibration_analysis(
         use_mock: Whether to use mock components (for testing)
         api_key: API key for LLM providers
         random_seed: Random seed for reproducibility
+        checkpoint_dir: Checkpoint directory name to resume from, or None for new run
         
     Returns:
         Path to results directory
@@ -502,10 +613,28 @@ def run_ci_calibration_analysis(
         torch.cuda.manual_seed_all(random_seed)
         torch.backends.cudnn.benchmark = False
     
-    # Create output directory with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_subdir = f"ci_calibration_results_{timestamp}"
-    full_output_dir = os.path.join(output_dir, results_subdir)
+    # Create output directory with timestamp or checkpoint
+    if checkpoint_dir:
+        # Resume from checkpoint
+        results_subdir = checkpoint_dir
+        full_output_dir = os.path.join(output_dir, results_subdir)
+        print(f"🔄 RESUMING FROM CHECKPOINT: {checkpoint_dir}")
+        
+        # Validate checkpoint exists
+        if not os.path.exists(full_output_dir):
+            raise FileNotFoundError(
+                f"Checkpoint directory not found: {full_output_dir}\n"
+                f"Please ensure the checkpoint directory exists before resuming."
+            )
+        print(f"✓ Checkpoint directory found: {full_output_dir}")
+    else:
+        # Create new run
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_subdir = f"ci_calibration_results_{timestamp}"
+        full_output_dir = os.path.join(output_dir, results_subdir)
+        os.makedirs(full_output_dir, exist_ok=True)
+        print(f"📝 Creating new run: {results_subdir}")
+    
     os.makedirs(full_output_dir, exist_ok=True)
     
     # Initialize logging (DualLogger redirects stdout to both console and file)
@@ -561,36 +690,81 @@ def run_ci_calibration_analysis(
         
         print("Transformed samples to TrustScore format (prompt/response)")
         
-        # Save selected samples metadata
-        samples_metadata = {
-            "num_examples": len(selected_samples),
-            "samples": [
-                {
-                    "item_id": s.get("unique_dataset_id", f"{s.get('sample_id', 'unknown')}-{s.get('model', 'unknown')}"),
-                    "sample_id": s.get("sample_id", "unknown"),
-                    "model_id": s.get("model", "unknown")
-                }
-                for s in selected_samples
-            ]
-        }
+        # Save selected samples metadata (only if not resuming or if file doesn't exist)
         metadata_path = os.path.join(full_output_dir, "samples_metadata.json")
-        with open(metadata_path, 'w') as f:
-            json.dump(samples_metadata, f, indent=2)
-        print(f"  ✓ Saved samples metadata to {metadata_path}")
+        if not os.path.exists(metadata_path):
+            samples_metadata = {
+                "num_examples": len(selected_samples),
+                "samples": [
+                    {
+                        "item_id": s.get("unique_dataset_id", f"{s.get('sample_id', 'unknown')}-{s.get('model', 'unknown')}"),
+                        "sample_id": s.get("sample_id", "unknown"),
+                        "model_id": s.get("model", "unknown")
+                    }
+                    for s in selected_samples
+                ]
+            }
+            with open(metadata_path, 'w') as f:
+                json.dump(samples_metadata, f, indent=2)
+            print(f"  ✓ Saved samples metadata to {metadata_path}")
+        else:
+            print(f"  ✓ Samples metadata already exists: {metadata_path}")
         
         # Prepare results file
         results_file = os.path.join(full_output_dir, "calibration_results.jsonl")
         
+        # Load existing results if resuming
+        completed_runs = {}
+        if checkpoint_dir and os.path.exists(results_file):
+            completed_runs = load_existing_results(results_file)
+            print(f"  ✓ Will skip {len(completed_runs)} already completed runs")
+        else:
+            # Create new results file if not resuming
+            if not checkpoint_dir:
+                open(results_file, 'w').close()  # Create empty file
+                print(f"  ✓ Created new results file: {results_file}")
+        
         # Run experiments
         total_runs = len(selected_samples) * len(judge_counts) * num_repeats
         run_counter = 0
+        completed_runs_count = len(completed_runs)
+        remaining_runs = total_runs - completed_runs_count  # New runs to complete
+        actual_completed_count = 0  # Track actually completed runs (not skipped)
         
-        with open(results_file, 'w', encoding='utf-8') as f:
-            for sample_idx, sample in enumerate(selected_samples, 1):
+        # Track timing for progress reports
+        start_time = time.time()
+        last_progress_time = start_time
+        
+        # Span tagger cache: Since span tagging is deterministic (temperature=0.0),
+        # we can cache spans per sample and reuse across all judge counts and repeats
+        span_cache: Dict[str, Any] = {}
+        
+        print(f"\n{'='*70}")
+        print("OPTIMIZATION: Span tagger caching enabled")
+        print(f"  - Will cache spans per sample (deterministic with temperature=0.0)")
+        print(f"  - Expected savings: ~{len(selected_samples) * (len(judge_counts) * num_repeats - 1)} span tagger calls")
+        print(f"{'='*70}\n")
+        
+        # Main loop - no longer wrapped in 'with open' context manager
+        # We'll append to file incrementally
+        for sample_idx, sample in enumerate(selected_samples, 1):
                 print(f"\n{'='*70}")
                 print(f"Processing Example {sample_idx}/{len(selected_samples)}")
                 print(f"Item ID: {sample.get('unique_dataset_id', 'unknown')}")
                 print(f"{'='*70}")
+                
+                item_id = sample.get('unique_dataset_id', 'unknown')
+                
+                # Cache spans for this sample (deterministic, so same across all runs)
+                # Use first pipeline instance to tag spans (will be created below)
+                cached_spans = None
+                if item_id not in span_cache:
+                    # We'll tag spans using the first pipeline instance
+                    # For now, set to None and tag on first use
+                    pass
+                else:
+                    cached_spans = span_cache[item_id]
+                    print(f"✓ Using cached spans for this sample ({len(cached_spans.spans)} spans)")
                 
                 for num_judges in judge_counts:
                     print(f"\n--- Config: {num_judges} judge(s) ---")
@@ -602,6 +776,23 @@ def run_ci_calibration_analysis(
                     # Initialize pipeline
                     pipeline = TrustScorePipeline(config=config, api_key=api_key, use_mock=use_mock)
                     
+                    # Tag spans once per sample (if not cached) - use first judge count's pipeline
+                    # Since span tagger is deterministic, spans are the same regardless of judge count
+                    if item_id not in span_cache:
+                        print(f"[CACHE] Tagging spans for sample {sample_idx} (will be reused for all runs)...")
+                        llm_record = pipeline._create_llm_record(
+                            sample["prompt"],
+                            sample["response"],
+                            sample.get("model", "unknown"),
+                            datetime.now()
+                        )
+                        spans_tags = pipeline.span_tagger.tag_spans(llm_record)
+                        span_cache[item_id] = spans_tags
+                        cached_spans = spans_tags
+                        print(f"[CACHE] ✓ Cached {len(spans_tags.spans)} spans for sample {sample_idx}")
+                    else:
+                        cached_spans = span_cache[item_id]
+                    
                     # Note: DualLogger already captures all print() statements to file,
                     # so we don't need to store logger references
                     
@@ -609,7 +800,41 @@ def run_ci_calibration_analysis(
                         run_counter += 1
                         
                         # Generate run ID
-                        run_id = f"run_{run_counter}::judges_{num_judges}::repeat_{repeat}::sample_{sample_idx}::{sample.get('unique_dataset_id', 'unknown')}"
+                        run_id = f"run_{run_counter}::judges_{num_judges}::repeat_{repeat}::sample_{sample_idx}::{item_id}"
+                        
+                        # Check if this run already exists
+                        run_key = (item_id, num_judges, repeat)
+                        if run_key in completed_runs:
+                            existing_result = completed_runs[run_key]
+                            print(f"  ⏭️  Skipping {run_id} - already completed (trust_score={existing_result.get('trust_score', 'N/A'):.3f})")
+                            continue
+                        
+                        # Increment actual completed counter (we're about to process this run)
+                        actual_completed_count += 1
+                        
+                        # Periodic progress report (every 10 runs or every 5 minutes)
+                        current_time = time.time()
+                        if actual_completed_count % 10 == 0 or (current_time - last_progress_time) >= 300:
+                            elapsed = current_time - start_time
+                            if elapsed > 0 and actual_completed_count > 0:
+                                rate = actual_completed_count / elapsed  # runs per second
+                                remaining_new = remaining_runs - actual_completed_count
+                                eta_seconds = remaining_new / rate if rate > 0 else 0
+                                eta_hours = eta_seconds / 3600
+                                
+                                print(f"\n{'='*70}")
+                                print(f"PROGRESS REPORT")
+                                print(f"{'='*70}")
+                                print(f"Total progress: {run_counter}/{total_runs} runs ({100*run_counter/total_runs:.1f}%)")
+                                print(f"  - Already completed (skipped): {completed_runs_count}")
+                                print(f"  - New runs completed: {actual_completed_count}/{remaining_runs}")
+                                print(f"Elapsed time: {elapsed/3600:.2f} hours")
+                                if rate > 0:
+                                    print(f"Rate: {rate*3600:.1f} runs/hour")
+                                    if eta_seconds > 0 and remaining_new > 0:
+                                        print(f"ETA: {eta_hours:.2f} hours ({eta_seconds/60:.0f} minutes)")
+                                print(f"{'='*70}\n")
+                            last_progress_time = current_time
                         
                         try:
                             # Verify required fields exist before processing
@@ -622,12 +847,14 @@ def run_ci_calibration_analysis(
                             repeat_seed = random_seed + (sample_idx * 1000) + (repeat * 100)
                             print(f"[INFO] Run {run_id}: Using generation_seed={repeat_seed}")
                             
-                            # Run pipeline with generation_seed (affects judge seeds, not span tagger)
-                            result = pipeline.process(
+                            # Run pipeline with cached spans (optimization)
+                            result = process_with_cached_spans(
+                                pipeline=pipeline,
                                 prompt=sample["prompt"],
                                 response=sample["response"],
                                 model=sample.get("model", "unknown"),
                                 generated_on=datetime.now(),
+                                cached_spans=cached_spans,
                                 generation_seed=repeat_seed  # Unique seed per repeat for judge variability
                             )
                             
@@ -636,8 +863,10 @@ def run_ci_calibration_analysis(
                                 result, sample, run_id, num_judges, repeat
                             )
                             
-                            f.write(json.dumps(result_data) + '\n')
-                            f.flush()
+                            # Append to results file (incremental save)
+                            with open(results_file, 'a', encoding='utf-8') as f:
+                                f.write(json.dumps(result_data) + '\n')
+                                f.flush()
                             
                             # Log key metrics for debugging
                             print(f"[INFO] Run {run_id} completed: trust_score={result_data['trust_score']:.3f}, "
@@ -650,7 +879,7 @@ def run_ci_calibration_analysis(
                             import traceback
                             print(f"[ERROR] {error_msg}")
                             print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
-                            # Save error record
+                            # Save error record (append mode)
                             error_data = {
                                 "item_id": sample.get("unique_dataset_id", "unknown"),
                                 "run_id": run_id,
@@ -658,8 +887,9 @@ def run_ci_calibration_analysis(
                                 "repeat": repeat,
                                 "error": str(e)
                             }
-                            f.write(json.dumps(error_data) + '\n')
-                            f.flush()
+                            with open(results_file, 'a', encoding='utf-8') as f:
+                                f.write(json.dumps(error_data) + '\n')
+                                f.flush()
         
         print(f"\n✓ Results saved to: {results_file}")
         
@@ -718,6 +948,8 @@ if __name__ == "__main__":
                             help=f"Judge counts to test (default: {JUDGE_COUNTS})")
         parser.add_argument("--num-repeats", type=int, default=NUM_REPEATS,
                             help=f"Number of repeats per (example, J) (default: {NUM_REPEATS})")
+        parser.add_argument("--checkpoint-dir", type=str, default=CHECKPOINT_DIR,
+                            help=f"Checkpoint directory name to resume from (default: {CHECKPOINT_DIR})")
         parser.add_argument("--random-seed", type=int, default=42,
                             help="Random seed (default: 42)")
         parser.add_argument("--use-mock", action="store_true",
@@ -733,6 +965,7 @@ if __name__ == "__main__":
             judge_counts=args.judge_counts,
             num_repeats=args.num_repeats,
             use_mock=args.use_mock,
-            random_seed=args.random_seed
+            random_seed=args.random_seed,
+            checkpoint_dir=args.checkpoint_dir
         )
 
