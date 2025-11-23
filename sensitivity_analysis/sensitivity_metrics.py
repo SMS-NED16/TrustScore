@@ -132,6 +132,7 @@ def calculate_monotonicity_metrics(
     
     # Calculate off-target correlations (should be near 0)
     off_target_metrics = {}
+    off_target_mean_scores_by_k = {}  # Store mean scores by k for each off-target dimension
     for dim in off_target_dims:
         dim_k_to_scores: Dict[int, List[float]] = {}
         for sample_id, scores in off_target_scores[dim].items():
@@ -139,6 +140,13 @@ def calculate_monotonicity_metrics(
                 if k not in dim_k_to_scores:
                     dim_k_to_scores[k] = []
                 dim_k_to_scores[k].append(score)
+        
+        # Store mean scores by k for this off-target dimension
+        dim_mean_scores_by_k = {}
+        for k, scores_list in dim_k_to_scores.items():
+            if scores_list:  # Only if there are scores for this k
+                dim_mean_scores_by_k[str(k)] = float(statistics.mean(scores_list))
+        off_target_mean_scores_by_k[dim] = dim_mean_scores_by_k
         
         if len(dim_k_to_scores) >= 2:
             dim_k_values = sorted([k for k in dim_k_to_scores.keys() if dim_k_to_scores[k]])  # Only k with scores
@@ -179,6 +187,7 @@ def calculate_monotonicity_metrics(
         },
         "off_target_gauges": off_target_metrics,
         "mean_scores_by_k": mean_scores_by_k,
+        "off_target_mean_scores_by_k": off_target_mean_scores_by_k,  # Mean scores by k for each off-target dimension
         "num_samples": len(target_scores_by_sample)
     }
 
