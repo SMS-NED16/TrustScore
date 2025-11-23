@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ci_calibration_analysis.ci_calibration_utils import (
     load_calibration_results,
     analyze_ci_level,
-    make_json_serializable
+    make_json_serializable,
+    compute_correlation
 )
 from specificity_analysis.dual_logger import DualLogger, initialize_logging, cleanup_logging
 
@@ -388,6 +389,16 @@ def generate_ci_calibration_report(
                 ]
                 if len(all_coverage) > 0:
                     judge_data["mean_coverage"] = float(np.mean(all_coverage))
+                
+                # Compute correlation between CI width and observed std
+                if len(judge_data["ci_widths"]) >= 2:
+                    pearson_r, spearman_r, p_value = compute_correlation(
+                        judge_data["ci_widths"],
+                        judge_data["observed_stds"]
+                    )
+                    judge_data["pearson_r"] = float(pearson_r)
+                    judge_data["spearman_r"] = float(spearman_r)
+                    judge_data["correlation_p_value"] = float(p_value)
     
     analyses.update(span_analyses)
     
