@@ -310,6 +310,35 @@ class MockSpanTagger(SpanTagger):
         spans = {}
         span_id = 0
         
+        # Helper function to check if a new span overlaps with existing spans
+        # Also removes smaller spans that are contained within the new span (prefers larger spans)
+        def overlaps_existing(start: int, end: int) -> bool:
+            spans_to_remove = []
+            for span_id_key, existing_span in spans.items():
+                existing_start = existing_span["start"]
+                existing_end = existing_span["end"]
+                
+                # Check if spans overlap (not just adjacent)
+                if not (end <= existing_start or start >= existing_end):
+                    # If new span completely contains existing span, mark existing for removal
+                    if start <= existing_start and end >= existing_end:
+                        spans_to_remove.append(span_id_key)
+                    # If existing span contains new span, don't add the new one
+                    elif existing_start <= start and existing_end >= end:
+                        return True
+                    # Otherwise, they overlap but neither contains the other - don't add
+                    else:
+                        return True
+            
+            # Remove smaller spans that are contained within the new span
+            for span_id_key in spans_to_remove:
+                del spans[span_id_key]
+            
+            # If we removed contained spans, the new span can be added (return False = no blocking overlap)
+            # If no overlaps were found, the new span can be added (return False = no overlap)
+            # We only return True if we hit an early return above (existing span contains new, or partial overlap)
+            return False
+        
         # Detect Trustworthiness errors (factual errors, hallucinations)
         # Look for common patterns that indicate errors
         
@@ -318,14 +347,15 @@ class MockSpanTagger(SpanTagger):
         if france_capital_pattern in response_text:
             start = response_text.find(france_capital_pattern)
             end = start + len(france_capital_pattern)
-            spans[str(span_id)] = {
-                "start": start,
-                "end": end,
-                "type": "T",
-                "subtype": "factual_error",
-                "explanation": "Irrelevant factual statement that doesn't relate to the topic."
-            }
-            span_id += 1
+            if not overlaps_existing(start, end):
+                spans[str(span_id)] = {
+                    "start": start,
+                    "end": end,
+                    "type": "T",
+                    "subtype": "factual_error",
+                    "explanation": "Irrelevant factual statement that doesn't relate to the topic."
+                }
+                span_id += 1
         
         # Check for other irrelevant facts
         if "which is important for understanding" in response_text and "capital" in response_text.lower():
@@ -335,7 +365,7 @@ class MockSpanTagger(SpanTagger):
                 if "capital" in sentence.lower() and "important" in sentence.lower():
                     start = response_text.find(sentence.strip())
                     end = start + len(sentence.strip())
-                    if start >= 0 and end > start:
+                    if start >= 0 and end > start and not overlaps_existing(start, end):
                         spans[str(span_id)] = {
                             "start": start,
                             "end": end,
