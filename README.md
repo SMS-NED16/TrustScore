@@ -7,19 +7,23 @@ A comprehensive pipeline for evaluating trustworthiness, bias, and explainabilit
 TrustScore is a multi-stage pipeline that:
 
 1. **Ingests** LLM prompts and responses in a standardized format
-2. **Identifies** span-level errors using a fine-tuned LLM tagger
-3. **Scores** error severity using multiple specialized judges
+2. **Identifies** span-level errors using an LLM-based tagger
+3. **Scores** error severity using an ensemble of specialized judges
 4. **Aggregates** scores into final TrustScore with confidence intervals
 
 ## Features
 
 - **Multi-category Error Detection**: Identifies Trustworthiness (T), Bias (B), and Explainability (E) errors
 - **Span-level Analysis**: Precise character-level error identification
-- **Multiple Judge Evaluation**: Uses specialized judges for different error types
-- **Confidence Intervals**: Statistical uncertainty quantification
+- **Ensemble Judge System**: Multiple specialized judges per error type for robust evaluation
+- **Multiple LLM Providers**: Support for OpenAI, LLaMA, and vLLM providers
+- **Confidence Intervals**: Statistical uncertainty quantification at span, category, and final score levels
 - **Configurable Weights**: Customizable aggregation of T/E/B scores
-- **Batch Processing**: Support for processing multiple responses
+- **Batch Processing**: Efficient processing of multiple responses with parallelization
+- **Performance Optimizations**: Batching for vLLM, parallel processing for other providers
 - **Comprehensive Validation**: Input validation and error handling
+- **Web UI**: Interactive web interface for demos and quick evaluations
+- **Analysis Tools**: Sensitivity, specificity, and CI calibration analysis modules
 
 ## Installation
 
@@ -27,7 +31,18 @@ TrustScore is a multi-stage pipeline that:
 pip install -r requirements.txt
 ```
 
+### Optional Dependencies
+
+For vLLM support (GPU-accelerated inference):
+```bash
+pip install vllm
+```
+
+Note: vLLM may not be available on Windows. Use `openai` or `llama` providers instead.
+
 ## Quick Start
+
+### Basic Usage
 
 ```python
 from pipeline.orchestrator import analyze_llm_response
@@ -41,8 +56,56 @@ result = analyze_llm_response(
 )
 
 print(f"Trust Score: {result.summary.trust_score}")
+print(f"Trustworthiness: {result.summary.agg_score_T}")
+print(f"Explainability: {result.summary.agg_score_E}")
+print(f"Bias: {result.summary.agg_score_B}")
 print(f"Errors found: {len(result.errors)}")
 ```
+
+### Using the Pipeline
+
+```python
+from pipeline.orchestrator import TrustScorePipeline
+from config.settings import load_config
+
+# Load configuration
+config = load_config()
+
+# Create pipeline
+pipeline = TrustScorePipeline(
+    config=config,
+    api_key="your-openai-key",  # Optional
+    use_mock=False
+)
+
+# Process a single response
+result = pipeline.process(
+    prompt="Explain machine learning",
+    response="Machine learning is a subset of AI...",
+    model="GPT-4o"
+)
+
+# Process batch of responses
+batch_inputs = [
+    {"prompt": "Question 1", "response": "Answer 1", "model": "GPT-4o"},
+    {"prompt": "Question 2", "response": "Answer 2", "model": "GPT-4o"}
+]
+results = pipeline.process_batch(batch_inputs)
+```
+
+### Web UI
+
+Start the web interface for interactive analysis:
+
+```bash
+cd ui
+pip install -r requirements.txt
+python app.py
+```
+
+Then open `http://localhost:5000` in your browser.
+
+See [ui/README.md](ui/README.md) for detailed UI documentation.
 
 ## Architecture
 
@@ -51,33 +114,71 @@ TrustScore Pipeline
 ├── Data Models (models/)
 │   ├── LLMRecord - Standardized input/output format
 │   ├── SpanTags - Error span identification
-│   └── AggregatedOutput - Final results
+│   └── AggregatedOutput - Final results with confidence intervals
 ├── Core Modules (modules/)
 │   ├── SpanTagger - LLM-based error identification
-│   ├── Judges - Specialized severity scoring
-│   └── Aggregator - Score combination
+│   ├── Judges - Ensemble of specialized severity scoring judges
+│   │   ├── TrustworthinessJudge
+│   │   ├── BiasJudge
+│   │   └── ExplainabilityJudge
+│   ├── Aggregator - Score combination with statistical aggregation
+│   └── LLM Providers (modules/llm_providers/)
+│       ├── OpenAIProvider
+│       ├── LLaMAProvider
+│       └── VLLMProvider
 ├── Pipeline (pipeline/)
-│   └── Orchestrator - Main coordination
+│   └── Orchestrator - Main coordination with performance optimizations
 ├── Configuration (config/)
-│   └── Settings - Weights and parameters
+│   └── Settings - Weights, ensemble config, performance settings
 ├── Prompts (prompts/)
 │   └── System Prompts - Centralized prompt management
-└── Utilities (utils/)
-    └── Error Handling - Validation and logging
+├── Utilities (utils/)
+│   └── Error Handling - Validation and logging
+├── Analysis Modules
+│   ├── sensitivity_analysis/ - Monotonicity validation
+│   ├── specificity_analysis/ - Error type specificity validation
+│   └── ci_calibration_analysis/ - Confidence interval calibration
+└── Web UI (ui/)
+    └── Flask-based interactive interface
 ```
 
 ## Configuration
 
-```python
-from config.settings import TrustScoreConfig
+### Basic Configuration
 
-config = TrustScoreConfig()
+```python
+from config.settings import TrustScoreConfig, load_config
+
+# Load default configuration
+config = load_config()
+
+# Customize aggregation weights
 config.aggregation_weights.trustworthiness = 0.6
 config.aggregation_weights.explainability = 0.3
 config.aggregation_weights.bias = 0.1
 
+# Configure ensemble settings
+config.ensemble.min_judges_required = 2
+config.ensemble.require_consensus = True
+config.ensemble.consensus_threshold = 0.7
+
+# Configure performance settings
+config.performance.enable_parallel_processing = True
+config.performance.max_concurrent_judges = 5
+
+# Create pipeline with custom config
 pipeline = TrustScorePipeline(config=config)
 ```
+
+### LLM Provider Configuration
+
+The pipeline supports multiple LLM providers:
+
+- **OpenAI**: Cloud-based API access
+- **LLaMA**: Local model inference
+- **vLLM**: GPU-accelerated batch inference (Linux only)
+
+Configure providers in `config/settings.py` or via configuration files.
 
 ## Error Types
 
@@ -106,8 +207,42 @@ pipeline = TrustScorePipeline(config=config)
 ```python
 from pipeline.orchestrator import TrustScorePipeline
 
-pipeline = TrustScorePipeline(api_key="your-openai-key")
-result = pipeline.process(prompt, response, model)
+pipeline = TrustScorePipeline(
+    config=None,  # Uses default config if None
+    api_key="your-openai-key",  # Optional
+    use_mock=False
+)
+
+# Process single response
+result = pipeline.process(
+    prompt="Your prompt",
+    response="LLM response",
+    model="model-name",
+    generated_on=None,  # Optional datetime
+    generation_seed=None  # Optional seed for reproducibility
+)
+
+# Process batch
+results = pipeline.process_batch([
+    {"prompt": "...", "response": "...", "model": "..."}
+])
+
+# Get pipeline status
+status = pipeline.get_pipeline_status()
+```
+
+### Convenience Function
+
+```python
+from pipeline.orchestrator import analyze_llm_response
+
+result = analyze_llm_response(
+    prompt="...",
+    response="...",
+    model="...",
+    api_key=None,  # Optional
+    use_mock=False
+)
 ```
 
 ### Individual Components
@@ -116,10 +251,13 @@ result = pipeline.process(prompt, response, model)
 from modules.span_tagger import SpanTagger
 from modules.judges.trustworthiness_judge import TrustworthinessJudge
 from modules.aggregator import Aggregator
+from config.settings import load_config
+
+config = load_config()
 
 # Use components individually
-tagger = SpanTagger(config, api_key)
-judge = TrustworthinessJudge(config, api_key)
+tagger = SpanTagger(config.span_tagger, api_key="...")
+judge = TrustworthinessJudge(config.judges["judge_name"], config, api_key="...")
 aggregator = Aggregator(config)
 ```
 
@@ -130,6 +268,83 @@ See `examples/usage.py` for comprehensive usage examples including:
 - Pipeline configuration
 - Validation and error handling
 - Custom configurations
+- Batch processing
+
+Run examples:
+```bash
+python examples/usage.py
+python main.py  # Main entry point with interactive examples
+```
+
+## Analysis Modules
+
+### Sensitivity Analysis
+
+Validates that TrustScore decreases monotonically as errors increase.
+
+```bash
+python sensitivity_analysis/run_sensitivity_analysis.py
+```
+
+See [sensitivity_analysis/README.md](sensitivity_analysis/README.md) for details.
+
+### Specificity Analysis
+
+Tests whether TrustScore correctly identifies specific error types.
+
+```bash
+python specificity_analysis/run_full_analysis.py --num-samples 50
+```
+
+See [specificity_analysis/README.md](specificity_analysis/README.md) for details.
+
+### CI Calibration Analysis
+
+Evaluates confidence interval calibration and behavior.
+
+```bash
+python ci_calibration_analysis/run_ci_calibration.py
+```
+
+See [ci_calibration_analysis/README.md](ci_calibration_analysis/README.md) for details.
+
+## Performance Features
+
+### Parallel Processing
+
+The pipeline automatically optimizes based on the LLM provider:
+- **vLLM**: Uses batched inference for efficient GPU utilization
+- **Other providers**: Uses ThreadPoolExecutor for parallel judge calls
+- **Sequential**: Fallback when parallelization is disabled
+
+### Batch Processing
+
+Process multiple responses efficiently:
+
+```python
+results = pipeline.process_batch([
+    {"prompt": "...", "response": "...", "model": "..."},
+    # ... more inputs
+])
+```
+
+### Ensemble Judges
+
+Configure multiple judges per error type for robust evaluation:
+
+```python
+config.ensemble.min_judges_required = 2
+config.ensemble.require_consensus = True
+config.ensemble.consensus_threshold = 0.7
+```
+
+## Evaluation Scripts
+
+The `scripts/` directory contains evaluation scripts for various datasets:
+
+- `feta_qa_evaluation.py`: FetaQA dataset evaluation
+- `run_summeval_inference.py`: SummEval dataset inference
+- `preprocess_summeval.py`: SummEval preprocessing
 
 ## Testing
 
@@ -137,8 +352,34 @@ See `examples/usage.py` for comprehensive usage examples including:
 # Run examples
 python examples/usage.py
 
+# Run main entry point
+python main.py
+
 # Run with mock components (no API calls)
-python examples/usage.py --mock
+python examples/usage.py
+# Then select mock mode when prompted
+```
+
+## Project Structure
+
+```
+TrustScore/
+├── config/              # Configuration management
+├── models/              # Data models and schemas
+├── modules/             # Core pipeline modules
+│   ├── judges/         # Judge implementations
+│   └── llm_providers/  # LLM provider implementations
+├── pipeline/            # Main orchestrator
+├── prompts/             # System prompts
+├── utils/               # Utility functions
+├── examples/            # Usage examples
+├── scripts/             # Evaluation scripts
+├── analysis_modules/    # Analysis and validation modules
+│   ├── sensitivity_analysis/
+│   ├── specificity_analysis/
+│   └── ci_calibration_analysis/
+├── ui/                  # Web interface
+└── datasets/            # Dataset storage
 ```
 
 ## Contributing
