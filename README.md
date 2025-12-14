@@ -111,6 +111,34 @@ python app.py
 
 Then open `http://localhost:5000` in your browser.
 
+The Web UI provides an interactive dashboard for analyzing LLM responses. Below is an overview of the analysis results interface:
+
+![TrustScore Web UI Dashboard](docs/ui_dashboard.png)
+
+**Dashboard Components:**
+
+1. **Overall TrustScore (Top Left)**: Displays the aggregated TrustScore percentage with interpretation (Poor/Fair/Good/Excellent) and confidence level. Includes a 95% confidence interval showing the statistical uncertainty range for the score.
+
+2. **Error Type and Definition (Top Right)**: Shows the currently selected error's type (Trustworthiness/Bias/Explainability), subtype (e.g., Hallucination, Factual Error), and a detailed definition explaining what the error represents.
+
+3. **Category Scores (Middle Left)**: Presents breakdown scores for each dimension:
+   - **Trustworthiness (T)**: Score and confidence for factual accuracy
+   - **Explainability (E)**: Score and confidence for clarity and completeness
+   - **Bias (B)**: Score and confidence for fairness and bias detection
+
+4. **Response with Error Highlights (Middle Section)**: Displays the original LLM response text with color-coded highlights:
+   - **Red**: Critical errors (high severity)
+   - **Orange**: Major errors (moderate severity)
+   - **Green**: Minor errors (low severity)
+   Clicking on highlighted spans shows detailed error information.
+
+5. **Detected Errors (Bottom Section)**: Provides a detailed list of all detected errors, including:
+   - Error type, subtype, and severity classification
+   - Severity score and confidence level
+   - Character-level location (start/end positions)
+   - Confidence intervals for both severity and confidence scores
+   - Individual judge analyses showing how each judge in the ensemble evaluated the error
+
 See [ui/README.md](ui/README.md) for detailed UI documentation.
 
 ## Architecture
