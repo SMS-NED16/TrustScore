@@ -11,6 +11,12 @@ TrustScore is a multi-stage pipeline that:
 3. **Scores** error severity using an ensemble of specialized judges
 4. **Aggregates** scores into final TrustScore with confidence intervals
 
+## Paper
+
+**⚠️ Preprint**: Our paper describing TrustScore is currently under review at IEEE Access.
+
+📄 [Download Preprint](https://drive.google.com/file/d/1xi3VC0p3DnEIG5vg2ucGFfALInNsXA8n/view?usp=sharing)
+
 ## Features
 
 - **Multi-category Error Detection**: Identifies Trustworthiness (T), Bias (B), and Explainability (E) errors
