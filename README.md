@@ -13,9 +13,9 @@ TrustScore is a multi-stage pipeline that:
 
 ## Paper
 
-**⚠️ Preprint**: Our paper describing TrustScore is currently under review at IEEE Access.
+**Preprint**: Our paper describing TrustScore is currently under review at IEEE Access.
 
-📄 [Download Preprint](https://drive.google.com/file/d/1xi3VC0p3DnEIG5vg2ucGFfALInNsXA8n/view?usp=sharing)
+[Download Preprint](https://drive.google.com/file/d/1xi3VC0p3DnEIG5vg2ucGFfALInNsXA8n/view?usp=sharing)
 
 ## Features
 
@@ -113,7 +113,7 @@ Then open `http://localhost:5000` in your browser.
 
 The Web UI provides an interactive dashboard for analyzing LLM responses. Below is an overview of the analysis results interface:
 
-![TrustScore Web UI Dashboard](docs/ui_dashboard.png)
+![TrustScore Web UI Dashboard](docs/trustscore_ui.png)
 
 **Dashboard Components:**
 
@@ -372,28 +372,6 @@ config.ensemble.require_consensus = True
 config.ensemble.consensus_threshold = 0.7
 ```
 
-## Evaluation Scripts
-
-The `scripts/` directory contains evaluation scripts for various datasets:
-
-- `feta_qa_evaluation.py`: FetaQA dataset evaluation
-- `run_summeval_inference.py`: SummEval dataset inference
-- `preprocess_summeval.py`: SummEval preprocessing
-
-## Testing
-
-```bash
-# Run examples
-python examples/usage.py
-
-# Run main entry point
-python main.py
-
-# Run with mock components (no API calls)
-python examples/usage.py
-# Then select mock mode when prompted
-```
-
 ## Project Structure
 
 ```
@@ -415,18 +393,6 @@ TrustScore/
 ├── ui/                  # Web interface
 └── datasets/            # Dataset storage
 ```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details.
 
 ## Support
 
