@@ -36,3 +36,9 @@ WORKDIR /app/ui
 CMD ["python", "app.py"]
 
 
+
+
+
+
+
+
