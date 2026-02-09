@@ -19,9 +19,6 @@ import csv
 import platform
 import subprocess
 import sys
-import io
-import re
-import contextlib
 import os
 import statistics
 from typing import Dict, List, Any, Optional, Tuple
@@ -165,17 +162,33 @@ class PipelineProfiler:
                     output_text = captured_stdout.getvalue() + captured_stderr.getvalue()
                     
                     # Pattern: "est. speed input: 837.84 toks/s, output: 299.87 toks/s"
-                    pattern = r'est\.\s*speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s'
-                    match = re.search(pattern, output_text)
+                    # Also try variations: "est speed", "estimated speed", etc.
+                    patterns = [
+                        r'est\.\s*speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s',
+                        r'est\s+speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s',
+                        r'estimated\s+speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s',
+                        r'input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s'
+                    ]
+                    
+                    match = None
+                    for pattern in patterns:
+                        match = re.search(pattern, output_text, re.IGNORECASE)
+                        if match:
+                            break
                     
                     if match:
                         vllm_tokens_per_sec_in = float(match.group(1))
                         vllm_tokens_per_sec_out = float(match.group(2))
                         print(f"[DEBUG Profiling] Captured vLLM metrics for {current_stage}: input={vllm_tokens_per_sec_in:.2f} toks/s, output={vllm_tokens_per_sec_out:.2f} toks/s")
+                    else:
+                        # Debug: print last 500 chars of output to help diagnose
+                        if len(output_text) > 0:
+                            print(f"[DEBUG Profiling] vLLM output (last 500 chars) for {current_stage}: {output_text[-500:]}")
                 except Exception as e:
                     print(f"[WARNING] Could not capture vLLM metrics: {e}")
                     # Fallback: call without redirection
-                    results = provider._original_batch_generate(messages_list, **kwargs)
+                    if 'results' not in locals():
+                        results = provider._original_batch_generate(messages_list, **kwargs)
                 
                 batch_end = time.monotonic()
                 batch_duration = batch_end - batch_start
@@ -275,17 +288,33 @@ class PipelineProfiler:
                 output_text = captured_stdout.getvalue() + captured_stderr.getvalue()
                 
                 # Pattern: "est. speed input: 837.84 toks/s, output: 299.87 toks/s"
-                pattern = r'est\.\s*speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s'
-                match = re.search(pattern, output_text)
+                # Also try variations: "est speed", "estimated speed", etc.
+                patterns = [
+                    r'est\.\s*speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s',
+                    r'est\s+speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s',
+                    r'estimated\s+speed\s+input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s',
+                    r'input:\s*([\d.]+)\s+toks/s,\s*output:\s*([\d.]+)\s+toks/s'
+                ]
+                
+                match = None
+                for pattern in patterns:
+                    match = re.search(pattern, output_text, re.IGNORECASE)
+                    if match:
+                        break
                 
                 if match:
                     vllm_tokens_per_sec_in = float(match.group(1))
                     vllm_tokens_per_sec_out = float(match.group(2))
                     print(f"[DEBUG Profiling] Captured vLLM metrics for {current_stage}: input={vllm_tokens_per_sec_in:.2f} toks/s, output={vllm_tokens_per_sec_out:.2f} toks/s")
+                else:
+                    # Debug: print last 500 chars of output to help diagnose
+                    if len(output_text) > 0:
+                        print(f"[DEBUG Profiling] vLLM output (last 500 chars) for {current_stage}: {output_text[-500:]}")
             except Exception as e:
                 print(f"[WARNING] Could not capture vLLM metrics: {e}")
                 # Fallback: call without redirection
-                result = provider._original_generate(messages, **kwargs)
+                if 'result' not in locals():
+                    result = provider._original_generate(messages, **kwargs)
             
             generate_end = time.monotonic()
             generate_duration = generate_end - generate_start
@@ -424,35 +453,15 @@ class PipelineProfiler:
                     "total_batch_items": 0,
                     "avg_throughput": 0.0,
                     "avg_latency_per_item": 0.0,
-                    "max_batch_size": 0,
-                    "avg_vllm_tokens_per_sec_in": None,
-                    "avg_vllm_tokens_per_sec_out": None
+                    "max_batch_size": 0
                 }
-            
-            # Extract vLLM metrics (filter out None values)
-            vllm_tokens_in = [b.get("vllm_tokens_per_sec_in") for b in batch_list if b.get("vllm_tokens_per_sec_in") is not None]
-            vllm_tokens_out = [b.get("vllm_tokens_per_sec_out") for b in batch_list if b.get("vllm_tokens_per_sec_out") is not None]
-            
-            result = {
+            return {
                 "batches": len(batch_list),
                 "total_batch_items": sum(b.get("batch_size", 0) for b in batch_list),
                 "avg_throughput": statistics.mean([b.get("throughput_items_per_sec", 0) for b in batch_list]),
                 "avg_latency_per_item": statistics.mean([b.get("avg_latency_per_item", 0) for b in batch_list]),
                 "max_batch_size": max([b.get("batch_size", 0) for b in batch_list])
             }
-            
-            # Add vLLM metrics if available
-            if vllm_tokens_in:
-                result["avg_vllm_tokens_per_sec_in"] = statistics.mean(vllm_tokens_in)
-            else:
-                result["avg_vllm_tokens_per_sec_in"] = None
-                
-            if vllm_tokens_out:
-                result["avg_vllm_tokens_per_sec_out"] = statistics.mean(vllm_tokens_out)
-            else:
-                result["avg_vllm_tokens_per_sec_out"] = None
-            
-            return result
         
         # Aggregate batch metrics for this response (overall and per-stage)
         batch_agg = {
@@ -861,15 +870,11 @@ class PipelineProfiler:
             "span_tagging_max_batch_size",
             "span_tagging_avg_throughput_items_per_sec",
             "span_tagging_avg_latency_per_item_seconds",
-            "span_tagging_avg_vllm_tokens_per_sec_in",
-            "span_tagging_avg_vllm_tokens_per_sec_out",
             # Severity scoring vLLM batch metrics
             "severity_scoring_batches",
             "severity_scoring_max_batch_size",
             "severity_scoring_avg_throughput_items_per_sec",
-            "severity_scoring_avg_latency_per_item_seconds",
-            "severity_scoring_avg_vllm_tokens_per_sec_in",
-            "severity_scoring_avg_vllm_tokens_per_sec_out"
+            "severity_scoring_avg_latency_per_item_seconds"
         ]
         
         with open(csv_path, 'w', newline='') as f:
@@ -914,15 +919,11 @@ class PipelineProfiler:
                     "span_tagging_max_batch_size": span_tagging_batch.get('max_batch_size', 0),
                     "span_tagging_avg_throughput_items_per_sec": span_tagging_batch.get('avg_throughput', 0.0),
                     "span_tagging_avg_latency_per_item_seconds": span_tagging_batch.get('avg_latency_per_item', 0.0),
-                    "span_tagging_avg_vllm_tokens_per_sec_in": span_tagging_batch.get('avg_vllm_tokens_per_sec_in') or "",
-                    "span_tagging_avg_vllm_tokens_per_sec_out": span_tagging_batch.get('avg_vllm_tokens_per_sec_out') or "",
                     # Severity scoring vLLM batch metrics
                     "severity_scoring_batches": severity_scoring_batch.get('batches', 0),
                     "severity_scoring_max_batch_size": severity_scoring_batch.get('max_batch_size', 0),
                     "severity_scoring_avg_throughput_items_per_sec": severity_scoring_batch.get('avg_throughput', 0.0),
-                    "severity_scoring_avg_latency_per_item_seconds": severity_scoring_batch.get('avg_latency_per_item', 0.0),
-                    "severity_scoring_avg_vllm_tokens_per_sec_in": severity_scoring_batch.get('avg_vllm_tokens_per_sec_in') or "",
-                    "severity_scoring_avg_vllm_tokens_per_sec_out": severity_scoring_batch.get('avg_vllm_tokens_per_sec_out') or ""
+                    "severity_scoring_avg_latency_per_item_seconds": severity_scoring_batch.get('avg_latency_per_item', 0.0)
                 }
                 writer.writerow(row)
     
@@ -1040,47 +1041,7 @@ class PipelineProfiler:
         # vLLM Batch Metrics Section
         f.write("## vLLM Batch Processing Metrics\n\n")
         f.write("**Location**: Stored in `runtime_summary.json` under `batch_metrics` key\n\n")
-        f.write("Batch-level throughput, latency, and tokens/second metrics extracted from vLLM progress bar output:\n\n")
-        
-        # Aggregate vLLM metrics by stage from response metrics
-        if self.response_metrics:
-            valid_metrics = [m for m in self.response_metrics if "error" not in m]
-            if valid_metrics:
-                # Collect vLLM metrics per stage
-                span_tagging_vllm_in = []
-                span_tagging_vllm_out = []
-                severity_scoring_vllm_in = []
-                severity_scoring_vllm_out = []
-                
-                for metrics in valid_metrics:
-                    batch_agg = metrics.get("batch_aggregates", {})
-                    span_tagging_batch = batch_agg.get("span_tagging", {})
-                    severity_scoring_batch = batch_agg.get("severity_scoring", {})
-                    
-                    if span_tagging_batch.get("avg_vllm_tokens_per_sec_in") is not None:
-                        span_tagging_vllm_in.append(span_tagging_batch["avg_vllm_tokens_per_sec_in"])
-                    if span_tagging_batch.get("avg_vllm_tokens_per_sec_out") is not None:
-                        span_tagging_vllm_out.append(span_tagging_batch["avg_vllm_tokens_per_sec_out"])
-                    if severity_scoring_batch.get("avg_vllm_tokens_per_sec_in") is not None:
-                        severity_scoring_vllm_in.append(severity_scoring_batch["avg_vllm_tokens_per_sec_in"])
-                    if severity_scoring_batch.get("avg_vllm_tokens_per_sec_out") is not None:
-                        severity_scoring_vllm_out.append(severity_scoring_batch["avg_vllm_tokens_per_sec_out"])
-                
-                f.write("### Stage-Level vLLM Tokens/Second Metrics\n\n")
-                f.write("| Stage | Avg Input Tokens/s | Avg Output Tokens/s |\n")
-                f.write("|-------|-------------------|---------------------|\n")
-                
-                if span_tagging_vllm_in:
-                    f.write(f"| span_tagging | {statistics.mean(span_tagging_vllm_in):.2f} | {statistics.mean(span_tagging_vllm_out):.2f} |\n")
-                else:
-                    f.write("| span_tagging | N/A | N/A |\n")
-                
-                if severity_scoring_vllm_in:
-                    f.write(f"| severity_scoring | {statistics.mean(severity_scoring_vllm_in):.2f} | {statistics.mean(severity_scoring_vllm_out):.2f} |\n")
-                else:
-                    f.write("| severity_scoring | N/A | N/A |\n")
-                
-                f.write("\n")
+        f.write("Batch-level throughput and latency metrics extracted from vLLM operations:\n\n")
         
         if self.batch_metrics:
             # Aggregate batch metrics by stage
