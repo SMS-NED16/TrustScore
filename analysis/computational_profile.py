@@ -43,10 +43,12 @@ except ImportError:
 class PipelineProfiler:
     """Profiles TrustScore pipeline execution without modifying underlying code"""
     
-    def __init__(self, config: TrustScoreConfig, api_key: Optional[str] = None, use_mock: bool = False):
+    def __init__(self, config: TrustScoreConfig, api_key: Optional[str] = None, use_mock: bool = False, 
+                 output_dir: str = "paper_materials"):
         self.config = config
         self.api_key = api_key
         self.use_mock = use_mock
+        self.output_dir = output_dir  # Configurable output directory
         
         # Initialize pipeline
         self.pipeline = TrustScorePipeline(config=config, api_key=api_key, use_mock=use_mock)
@@ -56,6 +58,7 @@ class PipelineProfiler:
         self.stage_metrics: Dict[str, List[float]] = defaultdict(list)
         self.llm_call_counts: Dict[str, int] = defaultdict(int)
         self.token_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"in": 0, "out": 0})
+        self.batch_metrics: List[Dict[str, Any]] = []  # Batch-level metrics (throughput, latency)
         
         # Track LLM calls and tokens by intercepting provider methods
         self._setup_profiling_hooks()
@@ -122,11 +125,30 @@ class PipelineProfiler:
             profiler_self = self
             
             def profiled_batch_generate(messages_list, **kwargs):
+                batch_size = len(messages_list)
+                batch_start = time.monotonic()
+                
                 # Track call (one batch call processes multiple items)
                 profiler_self.llm_call_counts[stage_name] += 1
                 
                 # Call original
                 results = provider._original_batch_generate(messages_list, **kwargs)
+                
+                batch_end = time.monotonic()
+                batch_duration = batch_end - batch_start
+                
+                # Calculate batch-level metrics
+                batch_throughput = batch_size / batch_duration if batch_duration > 0 else 0
+                avg_latency_per_item = batch_duration / batch_size if batch_size > 0 else 0
+                
+                # Store batch metrics
+                profiler_self.batch_metrics.append({
+                    "stage": stage_name,
+                    "batch_size": batch_size,
+                    "batch_duration": batch_duration,
+                    "throughput_items_per_sec": batch_throughput,
+                    "avg_latency_per_item": avg_latency_per_item
+                })
                 
                 # Count tokens for batch (approximate if not available from API)
                 if not (hasattr(provider, 'client') and hasattr(provider.client, 'chat')):
@@ -282,6 +304,9 @@ class PipelineProfiler:
                     "summary": aggregated_output.summary.dict() if hasattr(aggregated_output.summary, 'dict') else str(aggregated_output.summary),
                     "errors": {k: v.dict() if hasattr(v, 'dict') else str(v) for k, v in aggregated_output.errors.items()}
                 }
+            
+            # Serialize datetime objects and other non-JSON-serializable types
+            trustscore_output = self._serialize_for_json(trustscore_output)
         except Exception as e:
             print(f"[WARNING] Could not serialize aggregated_output: {e}")
             trustscore_output = None
@@ -539,24 +564,36 @@ class PipelineProfiler:
         
         return metadata
     
-    def _generate_outputs(self, config_name: str = "default", output_dir: str = "paper_materials"):
-        """Generate JSON and markdown outputs"""
+    def _generate_outputs(self, config_name: str = "default", output_dir: Optional[str] = None):
+        """Generate JSON and markdown outputs
+        
+        Args:
+            config_name: Name of the configuration (e.g., "J3" for 3 judges)
+            output_dir: Output directory (defaults to self.output_dir if not provided)
+        """
+        # Use instance output_dir if not provided
+        if output_dir is None:
+            output_dir = self.output_dir
         os.makedirs(output_dir, exist_ok=True)
         
         stats = self._aggregate_statistics()
         metadata = self._collect_environment_metadata()
+        
+        # Serialize raw_metrics to handle datetime objects
+        serialized_raw_metrics = self._serialize_for_json(self.response_metrics)
         
         # JSON output
         json_output = {
             "config": config_name,
             "statistics": stats,
             "metadata": metadata,
-            "raw_metrics": self.response_metrics
+            "raw_metrics": serialized_raw_metrics,
+            "batch_metrics": self._serialize_for_json(self.batch_metrics)  # Add batch metrics
         }
         
         json_path = os.path.join(output_dir, "runtime_summary.json")
         with open(json_path, 'w') as f:
-            json.dump(json_output, f, indent=2)
+            json.dump(json_output, f, indent=2, default=str)  # Add default=str as fallback
         print(f"\n[Output] Saved JSON to {json_path}")
         
         # Markdown output
@@ -568,8 +605,15 @@ class PipelineProfiler:
         # Save TrustScore outputs as JSONL
         self._save_trustscore_outputs(output_dir)
     
-    def _save_trustscore_outputs(self, output_dir: str = "paper_materials"):
-        """Save TrustScore outputs for each sample as JSONL"""
+    def _save_trustscore_outputs(self, output_dir: Optional[str] = None):
+        """Save TrustScore outputs for each sample as JSONL
+        
+        Args:
+            output_dir: Output directory (defaults to self.output_dir if not provided)
+        """
+        # Use instance output_dir if not provided
+        if output_dir is None:
+            output_dir = self.output_dir
         output_path = os.path.join(output_dir, "trustscore_outputs.jsonl")
         with open(output_path, 'w') as f:
             for metrics in self.response_metrics:
@@ -839,6 +883,7 @@ def load_sample_data(dataset_path: Optional[str] = None, num_samples: int = 50,
 # API_KEY = "your-api-key"  # Required if using OpenAI provider
 # USE_MOCK = False  # Set to True for testing without API calls
 # GENERATION_SEED = 42  # For reproducibility
+# OUTPUT_DIR = "paper_materials"  # Output directory for results (default: "paper_materials")
 # 
 # # ============================================================================
 # # EXECUTION
@@ -865,22 +910,25 @@ def load_sample_data(dataset_path: Optional[str] = None, num_samples: int = 50,
 #     print("[ERROR] No samples loaded. Please provide sample data.")
 #     print("Samples should be a list of dicts with 'prompt' and 'response' keys.")
 # else:
-#     # Step 3: Create profiler
+#     # Step 3: Create profiler with configurable output directory
 #     profiler = PipelineProfiler(
 #         config=config,
 #         api_key=API_KEY,
-#         use_mock=USE_MOCK
+#         use_mock=USE_MOCK,
+#         output_dir=OUTPUT_DIR  # Set output directory here
 #     )
 #     
 #     # Step 4: Run profiling
 #     print(f"\n[Profiling] Processing {len(samples)} samples with {NUM_JUDGES_PER_CATEGORY} judges per category...")
 #     profiler.profile_batch(samples, generation_seed=GENERATION_SEED)
 #     
-#     # Step 5: Generate outputs
+#     # Step 5: Generate outputs (uses profiler.output_dir by default, or override here)
 #     config_name = f"J{NUM_JUDGES_PER_CATEGORY}"
-#     profiler._generate_outputs(config_name=config_name, output_dir="paper_materials")
+#     profiler._generate_outputs(config_name=config_name)  # Uses profiler.output_dir
+#     # Or override: profiler._generate_outputs(config_name=config_name, output_dir="custom/path")
 #     
 #     print(f"\n[Complete] Profiling finished!")
-#     print(f"  - Results saved to: paper_materials/runtime_summary.json")
-#     print(f"  - Report saved to: paper_materials/runtime_summary.md")
+#     print(f"  - Results saved to: {OUTPUT_DIR}/runtime_summary.json")
+#     print(f"  - Report saved to: {OUTPUT_DIR}/runtime_summary.md")
+#     print(f"  - TrustScore outputs saved to: {OUTPUT_DIR}/trustscore_outputs.jsonl")
 
