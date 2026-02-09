@@ -15,6 +15,7 @@ OR copy-paste cells marked with "# Cell N:" into notebook.
 # Cell 1: Imports and setup
 import time
 import json
+import csv
 import platform
 import subprocess
 import sys
@@ -224,6 +225,9 @@ class PipelineProfiler:
         # Reset per-response counters
         response_start_time = time.monotonic()
         
+        # Track batch metrics for this response (capture starting index)
+        batch_metrics_start_idx = len(self.batch_metrics)
+        
         # Wrap providers for this response to track calls and tokens
         if hasattr(self.pipeline.span_tagger, 'llm_provider'):
             self._wrap_provider_for_profiling(self.pipeline.span_tagger.llm_provider, "span_tagging")
@@ -270,6 +274,19 @@ class PipelineProfiler:
         
         response_end_time = time.monotonic()
         total_time = response_end_time - response_start_time
+        
+        # Collect batch metrics for this response
+        batch_metrics_end_idx = len(self.batch_metrics)
+        response_batch_metrics = self.batch_metrics[batch_metrics_start_idx:batch_metrics_end_idx]
+        
+        # Aggregate batch metrics for this response
+        batch_agg = {
+            "total_batches": len(response_batch_metrics),
+            "total_batch_items": sum(b.get("batch_size", 0) for b in response_batch_metrics),
+            "avg_throughput": statistics.mean([b.get("throughput_items_per_sec", 0) for b in response_batch_metrics]) if response_batch_metrics else 0.0,
+            "avg_latency_per_item": statistics.mean([b.get("avg_latency_per_item", 0) for b in response_batch_metrics]) if response_batch_metrics else 0.0,
+            "max_batch_size": max([b.get("batch_size", 0) for b in response_batch_metrics]) if response_batch_metrics else 0
+        }
         
         # Collect LLM call and token counts for this response
         stage_calls = {
@@ -330,6 +347,8 @@ class PipelineProfiler:
             "num_explainability_spans": span_counts["E"],
             "num_error_spans": span_counts["total"],
             "trustscore_output": trustscore_output,
+            "batch_metrics": response_batch_metrics,  # Store batch metrics for this response
+            "batch_aggregates": batch_agg,  # Store aggregated batch stats
             "stages": {
                 "span_tagging": {
                     "wall_clock_seconds": span_tagging_time,
@@ -612,10 +631,89 @@ class PipelineProfiler:
             self._write_markdown_report(f, stats, metadata, config_name)
         print(f"[Output] Saved Markdown to {md_path}")
         
+        # CSV output (per-run statistics)
+        csv_path = os.path.join(output_dir, "per_run_statistics.csv")
+        self._save_per_run_csv(csv_path)
+        print(f"[Output] Saved CSV to {csv_path}")
+        
         # Save TrustScore outputs as JSONL
         self._save_trustscore_outputs(output_dir)
         
         print(f"\n[Output] All outputs saved to directory: {output_dir}")
+    
+    def _save_per_run_csv(self, csv_path: str):
+        """Save per-run statistics as CSV file"""
+        valid_metrics = [m for m in self.response_metrics if "error" not in m]
+        
+        if not valid_metrics:
+            print(f"[WARNING] No valid metrics to save to CSV")
+            return
+        
+        # Define CSV columns
+        fieldnames = [
+            "run",
+            "latency_seconds",
+            "llm_calls_total",
+            "tokens_in_total",
+            "tokens_out_total",
+            "num_spans",
+            "num_trust_spans",
+            "num_bias_spans",
+            "num_explainability_spans",
+            "span_tagging_calls",
+            "severity_scoring_calls",
+            "aggregation_calls",
+            "span_tagging_time",
+            "severity_scoring_time",
+            "aggregation_time",
+            "span_tagging_tokens_in",
+            "span_tagging_tokens_out",
+            "severity_scoring_tokens_in",
+            "severity_scoring_tokens_out",
+            "aggregation_tokens_in",
+            "aggregation_tokens_out",
+            "total_batches",
+            "max_batch_size",
+            "avg_throughput_items_per_sec",
+            "avg_latency_per_item_seconds"
+        ]
+        
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for i, metrics in enumerate(valid_metrics, 1):
+                stages = metrics.get("stages", {})
+                batch_agg = metrics.get("batch_aggregates", {})
+                
+                row = {
+                    "run": i,
+                    "latency_seconds": metrics.get('wall_clock_seconds_total', 0),
+                    "llm_calls_total": metrics.get('llm_calls_total', 0),
+                    "tokens_in_total": metrics.get('tokens_in_total', 0),
+                    "tokens_out_total": metrics.get('tokens_out_total', 0),
+                    "num_spans": metrics.get('num_spans', 0),
+                    "num_trust_spans": metrics.get('num_trust_spans', 0),
+                    "num_bias_spans": metrics.get('num_bias_spans', 0),
+                    "num_explainability_spans": metrics.get('num_explainability_spans', 0),
+                    "span_tagging_calls": stages.get("span_tagging", {}).get("llm_calls", 0),
+                    "severity_scoring_calls": stages.get("severity_scoring", {}).get("llm_calls", 0),
+                    "aggregation_calls": stages.get("aggregation_and_ci", {}).get("llm_calls", 0),
+                    "span_tagging_time": stages.get("span_tagging", {}).get("wall_clock_seconds", 0),
+                    "severity_scoring_time": stages.get("severity_scoring", {}).get("wall_clock_seconds", 0),
+                    "aggregation_time": stages.get("aggregation_and_ci", {}).get("wall_clock_seconds", 0),
+                    "span_tagging_tokens_in": stages.get("span_tagging", {}).get("tokens_in", 0),
+                    "span_tagging_tokens_out": stages.get("span_tagging", {}).get("tokens_out", 0),
+                    "severity_scoring_tokens_in": stages.get("severity_scoring", {}).get("tokens_in", 0),
+                    "severity_scoring_tokens_out": stages.get("severity_scoring", {}).get("tokens_out", 0),
+                    "aggregation_tokens_in": stages.get("aggregation_and_ci", {}).get("tokens_in", 0),
+                    "aggregation_tokens_out": stages.get("aggregation_and_ci", {}).get("tokens_out", 0),
+                    "total_batches": batch_agg.get('total_batches', 0),
+                    "max_batch_size": batch_agg.get('max_batch_size', 0),
+                    "avg_throughput_items_per_sec": batch_agg.get('avg_throughput', 0.0),
+                    "avg_latency_per_item_seconds": batch_agg.get('avg_latency_per_item', 0.0)
+                }
+                writer.writerow(row)
     
     def _save_trustscore_outputs(self, output_dir: Optional[str] = None):
         """Save TrustScore outputs for each sample as JSONL
@@ -707,20 +805,25 @@ class PipelineProfiler:
         # Per-Run Statistics (Individual Inference Details)
         f.write("## Per-Run Statistics\n\n")
         f.write("Detailed metrics for each individual inference:\n\n")
-        f.write("| Run | Latency (s) | LLM Calls | Tokens In | Tokens Out | Spans (T/B/E) | Span Tagging Calls | Severity Calls |\n")
-        f.write("|-----|-------------|-----------|-----------|------------|----------------|-------------------|----------------|\n")
+        f.write("| Run | Latency (s) | LLM Calls | Tokens In | Tokens Out | Spans (T/B/E) | Span Tagging Calls | Severity Calls | Batches | Max Batch Size | Avg Throughput (items/s) | Avg Latency/Item (s) |\n")
+        f.write("|-----|-------------|-----------|-----------|------------|----------------|-------------------|----------------|---------|----------------|---------------------------|----------------------|\n")
         
         valid_metrics = [m for m in self.response_metrics if "error" not in m]
         for i, metrics in enumerate(valid_metrics, 1):
             stages = metrics.get("stages", {})
             span_tagging_calls = stages.get("span_tagging", {}).get("llm_calls", 0)
             severity_calls = stages.get("severity_scoring", {}).get("llm_calls", 0)
+            batch_agg = metrics.get("batch_aggregates", {})
             f.write(f"| {i} | {metrics.get('wall_clock_seconds_total', 0):.2f} | "
                    f"{metrics.get('llm_calls_total', 0)} | "
                    f"{metrics.get('tokens_in_total', 0)} | "
                    f"{metrics.get('tokens_out_total', 0)} | "
                    f"{metrics.get('num_trust_spans', 0)}/{metrics.get('num_bias_spans', 0)}/{metrics.get('num_explainability_spans', 0)} | "
-                   f"{span_tagging_calls} | {severity_calls} |\n")
+                   f"{span_tagging_calls} | {severity_calls} | "
+                   f"{batch_agg.get('total_batches', 0)} | "
+                   f"{batch_agg.get('max_batch_size', 0)} | "
+                   f"{batch_agg.get('avg_throughput', 0.0):.2f} | "
+                   f"{batch_agg.get('avg_latency_per_item', 0.0):.3f} |\n")
         f.write("\n")
         
         # vLLM Batch Metrics Section
