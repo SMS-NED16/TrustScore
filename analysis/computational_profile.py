@@ -279,13 +279,37 @@ class PipelineProfiler:
         batch_metrics_end_idx = len(self.batch_metrics)
         response_batch_metrics = self.batch_metrics[batch_metrics_start_idx:batch_metrics_end_idx]
         
-        # Aggregate batch metrics for this response
+        # Separate batch metrics by stage
+        span_tagging_batches = [b for b in response_batch_metrics if b.get("stage") == "span_tagging"]
+        severity_scoring_batches = [b for b in response_batch_metrics if b.get("stage") == "severity_scoring"]
+        
+        # Helper function to aggregate batch metrics for a stage
+        def aggregate_batch_metrics(batch_list):
+            if not batch_list:
+                return {
+                    "batches": 0,
+                    "total_batch_items": 0,
+                    "avg_throughput": 0.0,
+                    "avg_latency_per_item": 0.0,
+                    "max_batch_size": 0
+                }
+            return {
+                "batches": len(batch_list),
+                "total_batch_items": sum(b.get("batch_size", 0) for b in batch_list),
+                "avg_throughput": statistics.mean([b.get("throughput_items_per_sec", 0) for b in batch_list]),
+                "avg_latency_per_item": statistics.mean([b.get("avg_latency_per_item", 0) for b in batch_list]),
+                "max_batch_size": max([b.get("batch_size", 0) for b in batch_list])
+            }
+        
+        # Aggregate batch metrics for this response (overall and per-stage)
         batch_agg = {
             "total_batches": len(response_batch_metrics),
             "total_batch_items": sum(b.get("batch_size", 0) for b in response_batch_metrics),
             "avg_throughput": statistics.mean([b.get("throughput_items_per_sec", 0) for b in response_batch_metrics]) if response_batch_metrics else 0.0,
             "avg_latency_per_item": statistics.mean([b.get("avg_latency_per_item", 0) for b in response_batch_metrics]) if response_batch_metrics else 0.0,
-            "max_batch_size": max([b.get("batch_size", 0) for b in response_batch_metrics]) if response_batch_metrics else 0
+            "max_batch_size": max([b.get("batch_size", 0) for b in response_batch_metrics]) if response_batch_metrics else 0,
+            "span_tagging": aggregate_batch_metrics(span_tagging_batches),
+            "severity_scoring": aggregate_batch_metrics(severity_scoring_batches)
         }
         
         # Collect LLM call and token counts for this response
@@ -672,10 +696,21 @@ class PipelineProfiler:
             "severity_scoring_tokens_out",
             "aggregation_tokens_in",
             "aggregation_tokens_out",
+            # Overall batch metrics (aggregated across all stages)
             "total_batches",
             "max_batch_size",
             "avg_throughput_items_per_sec",
-            "avg_latency_per_item_seconds"
+            "avg_latency_per_item_seconds",
+            # Span tagging vLLM batch metrics
+            "span_tagging_batches",
+            "span_tagging_max_batch_size",
+            "span_tagging_avg_throughput_items_per_sec",
+            "span_tagging_avg_latency_per_item_seconds",
+            # Severity scoring vLLM batch metrics
+            "severity_scoring_batches",
+            "severity_scoring_max_batch_size",
+            "severity_scoring_avg_throughput_items_per_sec",
+            "severity_scoring_avg_latency_per_item_seconds"
         ]
         
         with open(csv_path, 'w', newline='') as f:
@@ -685,6 +720,8 @@ class PipelineProfiler:
             for i, metrics in enumerate(valid_metrics, 1):
                 stages = metrics.get("stages", {})
                 batch_agg = metrics.get("batch_aggregates", {})
+                span_tagging_batch = batch_agg.get("span_tagging", {})
+                severity_scoring_batch = batch_agg.get("severity_scoring", {})
                 
                 row = {
                     "run": i,
@@ -708,10 +745,21 @@ class PipelineProfiler:
                     "severity_scoring_tokens_out": stages.get("severity_scoring", {}).get("tokens_out", 0),
                     "aggregation_tokens_in": stages.get("aggregation_and_ci", {}).get("tokens_in", 0),
                     "aggregation_tokens_out": stages.get("aggregation_and_ci", {}).get("tokens_out", 0),
+                    # Overall batch metrics
                     "total_batches": batch_agg.get('total_batches', 0),
                     "max_batch_size": batch_agg.get('max_batch_size', 0),
                     "avg_throughput_items_per_sec": batch_agg.get('avg_throughput', 0.0),
-                    "avg_latency_per_item_seconds": batch_agg.get('avg_latency_per_item', 0.0)
+                    "avg_latency_per_item_seconds": batch_agg.get('avg_latency_per_item', 0.0),
+                    # Span tagging vLLM batch metrics
+                    "span_tagging_batches": span_tagging_batch.get('batches', 0),
+                    "span_tagging_max_batch_size": span_tagging_batch.get('max_batch_size', 0),
+                    "span_tagging_avg_throughput_items_per_sec": span_tagging_batch.get('avg_throughput', 0.0),
+                    "span_tagging_avg_latency_per_item_seconds": span_tagging_batch.get('avg_latency_per_item', 0.0),
+                    # Severity scoring vLLM batch metrics
+                    "severity_scoring_batches": severity_scoring_batch.get('batches', 0),
+                    "severity_scoring_max_batch_size": severity_scoring_batch.get('max_batch_size', 0),
+                    "severity_scoring_avg_throughput_items_per_sec": severity_scoring_batch.get('avg_throughput', 0.0),
+                    "severity_scoring_avg_latency_per_item_seconds": severity_scoring_batch.get('avg_latency_per_item', 0.0)
                 }
                 writer.writerow(row)
     
