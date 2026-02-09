@@ -113,11 +113,15 @@ class PipelineProfiler:
     def _wrap_provider_for_profiling(self, provider, stage_name: str):
         """Wrap an LLM provider to track calls and tokens for a specific stage"""
         if not hasattr(provider, 'generate'):
+            print(f"[DEBUG Profiling] Provider {id(provider)} has no generate() method")
             return
         
         # Store original if not already stored (preserve across multiple wraps)
         if not hasattr(provider, '_original_generate'):
             provider._original_generate = provider.generate
+            print(f"[DEBUG Profiling] Stored original generate() for provider {id(provider)}")
+        else:
+            print(f"[DEBUG Profiling] Provider {id(provider)} already has _original_generate, reusing")
         
         # Wrap batch_generate if it exists (for vLLM batching)
         if hasattr(provider, 'batch_generate'):
@@ -133,6 +137,7 @@ class PipelineProfiler:
                 
                 # Track call (one batch call processes multiple items)
                 profiler_self.llm_call_counts[current_stage] += 1
+                print(f"[DEBUG Profiling] batch_generate() called for stage={current_stage}, batch_size={batch_size}, total calls now={profiler_self.llm_call_counts[current_stage]}")
                 
                 # Call original
                 results = provider._original_batch_generate(messages_list, **kwargs)
@@ -170,6 +175,7 @@ class PipelineProfiler:
             
             # Always re-wrap to ensure current stage_name is used
             provider.batch_generate = profiled_batch_generate
+            print(f"[DEBUG Profiling] Wrapped batch_generate() for provider {id(provider)}, stage={stage_name}")
         
         # For OpenAI provider, also wrap the client's chat.completions.create
         if hasattr(provider, 'client') and hasattr(provider.client, 'chat'):
@@ -201,9 +207,26 @@ class PipelineProfiler:
         def profiled_generate(messages, **kwargs):
             # Track call
             profiler_self.llm_call_counts[current_stage] += 1
+            print(f"[DEBUG Profiling] generate() called for stage={current_stage}, total calls now={profiler_self.llm_call_counts[current_stage]}")
+            
+            # Time the generate call (for batch metrics compatibility)
+            generate_start = time.monotonic()
             
             # Call original
             result = provider._original_generate(messages, **kwargs)
+            
+            generate_end = time.monotonic()
+            generate_duration = generate_end - generate_start
+            
+            # Create synthetic batch metric for generate() calls (batch_size=1)
+            # This allows us to track span tagging performance in the same way as batched calls
+            profiler_self.batch_metrics.append({
+                "stage": current_stage,
+                "batch_size": 1,  # Single item for generate() calls
+                "batch_duration": generate_duration,
+                "throughput_items_per_sec": 1.0 / generate_duration if generate_duration > 0 else 0.0,
+                "avg_latency_per_item": generate_duration
+            })
             
             # If we didn't get tokens from OpenAI response (non-OpenAI provider), approximate
             if not (hasattr(provider, 'client') and hasattr(provider.client, 'chat')):
@@ -217,6 +240,7 @@ class PipelineProfiler:
         
         # Always re-wrap to ensure current stage_name is used
         provider.generate = profiled_generate
+        print(f"[DEBUG Profiling] Wrapped generate() for provider {id(provider)}, stage={stage_name}")
     
     def profile_response(self, prompt: str, response: str, model: str = "unknown", 
                         generation_seed: Optional[int] = None) -> Dict[str, Any]:
@@ -228,19 +252,40 @@ class PipelineProfiler:
         # Track batch metrics for this response (capture starting index)
         batch_metrics_start_idx = len(self.batch_metrics)
         
+        # Reset counters for this response (BEFORE wrapping to ensure clean state)
+        self.llm_call_counts.clear()
+        self.token_counts.clear()
+        
+        # Track unique providers to avoid double-wrapping
+        wrapped_providers = set()
+        
         # Wrap providers for this response to track calls and tokens
         if hasattr(self.pipeline.span_tagger, 'llm_provider'):
-            self._wrap_provider_for_profiling(self.pipeline.span_tagger.llm_provider, "span_tagging")
+            provider_id = id(self.pipeline.span_tagger.llm_provider)
+            if provider_id not in wrapped_providers:
+                print(f"[DEBUG Profiling] Wrapping span_tagger provider: {type(self.pipeline.span_tagger.llm_provider).__name__}, id={provider_id}")
+                self._wrap_provider_for_profiling(self.pipeline.span_tagger.llm_provider, "span_tagging")
+                wrapped_providers.add(provider_id)
+            else:
+                print(f"[DEBUG Profiling] Span tagger provider {provider_id} already wrapped, skipping")
         
-        # Wrap judge providers
+        # Wrap judge providers (track unique providers to avoid double-wrapping)
+        judge_count = 0
+        unique_providers = set()
         for category in ["trustworthiness", "bias", "explainability"]:
             for judge in self.pipeline.judges.get(category, {}).values():
                 if hasattr(judge, 'llm_provider'):
-                    self._wrap_provider_for_profiling(judge.llm_provider, "severity_scoring")
+                    provider_id = id(judge.llm_provider)
+                    if provider_id not in wrapped_providers:
+                        judge_count += 1
+                        print(f"[DEBUG Profiling] Wrapping judge {judge_count} provider: {type(judge.llm_provider).__name__}, id={provider_id}")
+                        self._wrap_provider_for_profiling(judge.llm_provider, "severity_scoring")
+                        wrapped_providers.add(provider_id)
+                    else:
+                        print(f"[DEBUG Profiling] Judge provider {provider_id} already wrapped, skipping")
+                    unique_providers.add(provider_id)
         
-        # Reset counters for this response
-        self.llm_call_counts.clear()
-        self.token_counts.clear()
+        print(f"[DEBUG Profiling] Wrapped {judge_count} unique judge providers (out of {len(unique_providers)} total provider instances)")
         
         # Stage 1: Span Tagging (includes error classification)
         llm_record = self.pipeline._create_llm_record(prompt, response, model, None)
@@ -313,11 +358,13 @@ class PipelineProfiler:
         }
         
         # Collect LLM call and token counts for this response
+        print(f"[DEBUG Profiling] Final call counts: {dict(self.llm_call_counts)}")
         stage_calls = {
             "span_tagging": self.llm_call_counts.get("span_tagging", 0),
             "severity_scoring": self.llm_call_counts.get("severity_scoring", 0),
             "aggregation_and_ci": self.llm_call_counts.get("aggregation_and_ci", 0)
         }
+        print(f"[DEBUG Profiling] Stage calls: {stage_calls}")
         
         stage_tokens = {
             "span_tagging": self.token_counts.get("span_tagging", {"in": 0, "out": 0}).copy(),
