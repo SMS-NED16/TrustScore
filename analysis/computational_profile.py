@@ -123,15 +123,21 @@ class PipelineProfiler:
         else:
             print(f"[DEBUG Profiling] Provider {id(provider)} already has _original_generate, reusing")
         
+        # Store stage_name on the provider so we can use it dynamically
+        # This allows the same provider to be used for different stages
+        provider._profiling_stage = stage_name
+        
         # Wrap batch_generate if it exists (for vLLM batching)
         if hasattr(provider, 'batch_generate'):
             if not hasattr(provider, '_original_batch_generate'):
                 provider._original_batch_generate = provider.batch_generate
             
             profiler_self = self
-            current_stage = stage_name  # Capture stage_name for this wrapper
             
             def profiled_batch_generate(messages_list, **kwargs):
+                # Get current stage from provider (may have been updated)
+                current_stage = getattr(provider, '_profiling_stage', 'unknown')
+                
                 batch_size = len(messages_list)
                 batch_start = time.monotonic()
                 
@@ -183,9 +189,11 @@ class PipelineProfiler:
                 provider.client.chat.completions._original_create = provider.client.chat.completions.create
                 
                 profiler_self = self
-                current_stage = stage_name
                 
                 def profiled_create(*args, **kwargs):
+                    # Get current stage from provider (may have been updated)
+                    current_stage = getattr(provider, '_profiling_stage', 'unknown')
+                    
                     # Call original
                     response_obj = provider.client.chat.completions._original_create(*args, **kwargs)
                     
@@ -200,11 +208,13 @@ class PipelineProfiler:
                 
                 provider.client.chat.completions.create = profiled_create
         
-        # Create wrapper that captures self and stage_name
+        # Create wrapper that captures self and uses dynamic stage_name
         profiler_self = self
-        current_stage = stage_name  # Capture stage_name for this wrapper
         
         def profiled_generate(messages, **kwargs):
+            # Get current stage from provider (may have been updated)
+            current_stage = getattr(provider, '_profiling_stage', 'unknown')
+            
             # Track call
             profiler_self.llm_call_counts[current_stage] += 1
             print(f"[DEBUG Profiling] generate() called for stage={current_stage}, total calls now={profiler_self.llm_call_counts[current_stage]}")
@@ -260,29 +270,27 @@ class PipelineProfiler:
         wrapped_providers = set()
         
         # Wrap providers for this response to track calls and tokens
+        # Note: We need to wrap with the correct stage_name even if provider is shared
         if hasattr(self.pipeline.span_tagger, 'llm_provider'):
             provider_id = id(self.pipeline.span_tagger.llm_provider)
-            if provider_id not in wrapped_providers:
-                print(f"[DEBUG Profiling] Wrapping span_tagger provider: {type(self.pipeline.span_tagger.llm_provider).__name__}, id={provider_id}")
-                self._wrap_provider_for_profiling(self.pipeline.span_tagger.llm_provider, "span_tagging")
-                wrapped_providers.add(provider_id)
-            else:
-                print(f"[DEBUG Profiling] Span tagger provider {provider_id} already wrapped, skipping")
+            print(f"[DEBUG Profiling] Wrapping span_tagger provider: {type(self.pipeline.span_tagger.llm_provider).__name__}, id={provider_id}")
+            self._wrap_provider_for_profiling(self.pipeline.span_tagger.llm_provider, "span_tagging")
+            wrapped_providers.add(provider_id)
         
-        # Wrap judge providers (track unique providers to avoid double-wrapping)
+        # Wrap judge providers - always re-wrap to update stage_name even if provider is shared
         judge_count = 0
         unique_providers = set()
         for category in ["trustworthiness", "bias", "explainability"]:
             for judge in self.pipeline.judges.get(category, {}).values():
                 if hasattr(judge, 'llm_provider'):
                     provider_id = id(judge.llm_provider)
-                    if provider_id not in wrapped_providers:
+                    if provider_id not in unique_providers:
                         judge_count += 1
                         print(f"[DEBUG Profiling] Wrapping judge {judge_count} provider: {type(judge.llm_provider).__name__}, id={provider_id}")
-                        self._wrap_provider_for_profiling(judge.llm_provider, "severity_scoring")
-                        wrapped_providers.add(provider_id)
                     else:
-                        print(f"[DEBUG Profiling] Judge provider {provider_id} already wrapped, skipping")
+                        print(f"[DEBUG Profiling] Re-wrapping shared judge provider {provider_id} for severity_scoring stage")
+                    # Always re-wrap to update stage_name (provider may be shared)
+                    self._wrap_provider_for_profiling(judge.llm_provider, "severity_scoring")
                     unique_providers.add(provider_id)
         
         print(f"[DEBUG Profiling] Wrapped {judge_count} unique judge providers (out of {len(unique_providers)} total provider instances)")
