@@ -653,19 +653,43 @@ class PipelineProfiler:
 
 # Cell 3: Configuration and sample data loading
 def create_config_with_judge_count(num_judges_per_category: int, 
-                                   model: str = "meta-llama/Llama-3.1-8B-Instruct",  # Default to LLaMA
-                                   provider: LLMProvider = LLMProvider.LLAMA,  # Default to LLaMA
+                                   model: str = "meta-llama/Llama-3.1-8B-Instruct",  # Default HuggingFace model
+                                   provider: Optional[LLMProvider] = None,  # Auto-detect if None
                                    temperature: float = 0.1,
-                                   max_tokens: int = 2000) -> TrustScoreConfig:
-    """Create a TrustScoreConfig with specified number of judges per category"""
+                                   max_tokens: int = 2000,
+                                   model_path: Optional[str] = None) -> TrustScoreConfig:
+    """
+    Create a TrustScoreConfig with specified number of judges per category.
+    
+    Args:
+        num_judges_per_category: Number of judges per category (T, B, E)
+        model: Model name/ID (HuggingFace ID for vLLM, or model name for others)
+        provider: LLM provider (None = auto-detect: VLLM for HuggingFace IDs, LLaMA for local paths)
+        temperature: Model temperature
+        max_tokens: Maximum tokens to generate
+        model_path: Local model path (required for LLaMA provider, optional for vLLM)
+    """
     from config.settings import TrustScoreConfig, JudgeConfig, SpanTaggerConfig
+    
+    # Auto-detect provider if not specified
+    if provider is None:
+        # Use VLLM for HuggingFace model IDs (contains "/")
+        # Use LLaMA for local paths (if model_path provided)
+        if model_path:
+            provider = LLMProvider.LLAMA
+        elif "/" in model:  # HuggingFace model ID
+            provider = LLMProvider.VLLM
+        else:
+            # Default to VLLM for RunPod/Colab environments
+            provider = LLMProvider.VLLM
     
     # Create span tagger config with hyperparameters
     span_tagger_config = SpanTaggerConfig(
         model=model,
         provider=provider,
         temperature=temperature,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        model_path=model_path  # Set model_path if provided
     )
     
     # Create judge configs with hyperparameters
@@ -678,7 +702,8 @@ def create_config_with_judge_count(num_judges_per_category: int,
                 model=model,
                 provider=provider,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                model_path=model_path  # Set model_path if provided
             )
     
     return TrustScoreConfig(
@@ -743,10 +768,11 @@ def load_sample_data(dataset_path: Optional[str] = None, num_samples: int = 50,
 # # Step 1: Create config with specified number of judges
 # config = create_config_with_judge_count(
 #     num_judges_per_category=NUM_JUDGES_PER_CATEGORY,
-#     model="meta-llama/Llama-3.1-8B-Instruct",  # Default: LLaMA, change if needed
-#     provider=LLMProvider.LLAMA,  # Default: LLaMA, change if needed
-#     temperature=0.1,  # Model hyperparameters
-#     max_tokens=2000
+#     model="meta-llama/Llama-3.1-8B-Instruct",  # HuggingFace model ID (uses VLLM by default)
+#     provider=None,  # Auto-detect: VLLM for HuggingFace IDs, LLaMA for local paths
+#     temperature=0.0,  # Model hyperparameters (0.0 for deterministic, 0.7 for variability)
+#     max_tokens=4096  # Increased for complete JSON responses
+#     # model_path=None  # Optional: set if using local model with LLaMA provider
 # )
 # 
 # # Step 2: Load sample data
