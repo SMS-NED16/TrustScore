@@ -114,22 +114,24 @@ class PipelineProfiler:
         if not hasattr(provider, 'generate'):
             return
         
-        # Store original if not already stored
+        # Store original if not already stored (preserve across multiple wraps)
         if not hasattr(provider, '_original_generate'):
             provider._original_generate = provider.generate
         
         # Wrap batch_generate if it exists (for vLLM batching)
-        if hasattr(provider, 'batch_generate') and not hasattr(provider, '_original_batch_generate'):
-            provider._original_batch_generate = provider.batch_generate
+        if hasattr(provider, 'batch_generate'):
+            if not hasattr(provider, '_original_batch_generate'):
+                provider._original_batch_generate = provider.batch_generate
             
             profiler_self = self
+            current_stage = stage_name  # Capture stage_name for this wrapper
             
             def profiled_batch_generate(messages_list, **kwargs):
                 batch_size = len(messages_list)
                 batch_start = time.monotonic()
                 
                 # Track call (one batch call processes multiple items)
-                profiler_self.llm_call_counts[stage_name] += 1
+                profiler_self.llm_call_counts[current_stage] += 1
                 
                 # Call original
                 results = provider._original_batch_generate(messages_list, **kwargs)
@@ -143,7 +145,7 @@ class PipelineProfiler:
                 
                 # Store batch metrics
                 profiler_self.batch_metrics.append({
-                    "stage": stage_name,
+                    "stage": current_stage,
                     "batch_size": batch_size,
                     "batch_duration": batch_duration,
                     "throughput_items_per_sec": batch_throughput,
@@ -160,17 +162,21 @@ class PipelineProfiler:
                         total_tokens_in += profiler_self._count_tokens_approximate(full_text)
                     for result in results:
                         total_tokens_out += profiler_self._count_tokens_approximate(str(result))
-                    profiler_self.token_counts[stage_name]["in"] += total_tokens_in
-                    profiler_self.token_counts[stage_name]["out"] += total_tokens_out
+                    profiler_self.token_counts[current_stage]["in"] += total_tokens_in
+                    profiler_self.token_counts[current_stage]["out"] += total_tokens_out
                 
                 return results
             
+            # Always re-wrap to ensure current stage_name is used
             provider.batch_generate = profiled_batch_generate
         
         # For OpenAI provider, also wrap the client's chat.completions.create
         if hasattr(provider, 'client') and hasattr(provider.client, 'chat'):
             if not hasattr(provider.client.chat.completions, '_original_create'):
                 provider.client.chat.completions._original_create = provider.client.chat.completions.create
+                
+                profiler_self = self
+                current_stage = stage_name
                 
                 def profiled_create(*args, **kwargs):
                     # Call original
@@ -180,19 +186,20 @@ class PipelineProfiler:
                     if hasattr(response_obj, 'usage') and response_obj.usage:
                         tokens_in = response_obj.usage.prompt_tokens
                         tokens_out = response_obj.usage.completion_tokens
-                        self.token_counts[stage_name]["in"] += tokens_in
-                        self.token_counts[stage_name]["out"] += tokens_out
+                        profiler_self.token_counts[current_stage]["in"] += tokens_in
+                        profiler_self.token_counts[current_stage]["out"] += tokens_out
                     
                     return response_obj
                 
                 provider.client.chat.completions.create = profiled_create
         
-        # Create wrapper that captures self
+        # Create wrapper that captures self and stage_name
         profiler_self = self
+        current_stage = stage_name  # Capture stage_name for this wrapper
         
         def profiled_generate(messages, **kwargs):
             # Track call
-            profiler_self.llm_call_counts[stage_name] += 1
+            profiler_self.llm_call_counts[current_stage] += 1
             
             # Call original
             result = provider._original_generate(messages, **kwargs)
@@ -202,11 +209,12 @@ class PipelineProfiler:
                 full_text = " ".join([m.get("content", "") for m in messages if isinstance(m, dict)])
                 approx_tokens_in = profiler_self._count_tokens_approximate(full_text)
                 approx_tokens_out = profiler_self._count_tokens_approximate(str(result))
-                profiler_self.token_counts[stage_name]["in"] += approx_tokens_in
-                profiler_self.token_counts[stage_name]["out"] += approx_tokens_out
+                profiler_self.token_counts[current_stage]["in"] += approx_tokens_in
+                profiler_self.token_counts[current_stage]["out"] += approx_tokens_out
             
             return result
         
+        # Always re-wrap to ensure current stage_name is used
         provider.generate = profiled_generate
     
     def profile_response(self, prompt: str, response: str, model: str = "unknown", 
@@ -574,6 +582,7 @@ class PipelineProfiler:
         # Use instance output_dir if not provided
         if output_dir is None:
             output_dir = self.output_dir
+        print(f"[Output] Using output directory: {output_dir}")
         os.makedirs(output_dir, exist_ok=True)
         
         stats = self._aggregate_statistics()
@@ -595,6 +604,7 @@ class PipelineProfiler:
         with open(json_path, 'w') as f:
             json.dump(json_output, f, indent=2, default=str)  # Add default=str as fallback
         print(f"\n[Output] Saved JSON to {json_path}")
+        print(f"[Output]   - Batch metrics stored in: batch_metrics key")
         
         # Markdown output
         md_path = os.path.join(output_dir, "runtime_summary.md")
@@ -604,6 +614,8 @@ class PipelineProfiler:
         
         # Save TrustScore outputs as JSONL
         self._save_trustscore_outputs(output_dir)
+        
+        print(f"\n[Output] All outputs saved to directory: {output_dir}")
     
     def _save_trustscore_outputs(self, output_dir: Optional[str] = None):
         """Save TrustScore outputs for each sample as JSONL
@@ -641,7 +653,8 @@ class PipelineProfiler:
         """Write paper-ready markdown report"""
         f.write("# TrustScore Computational Profile\n\n")
         f.write(f"**Configuration**: {config_name}\n")
-        f.write(f"**Generated**: {metadata['timestamp']}\n\n")
+        f.write(f"**Generated**: {metadata['timestamp']}\n")
+        f.write(f"**Output Directory**: `{self.output_dir}`\n\n")
         
         # Summary Table
         f.write("## Summary Statistics\n\n")
@@ -689,6 +702,65 @@ class PipelineProfiler:
                 pct_time = (stage_time / total_time * 100) if total_time > 0 else 0
                 pct_calls = (stage_calls / total_calls * 100) if total_calls > 0 else 0
                 f.write(f"| {stage} | {pct_time:.1f}% | {pct_calls:.1f}% |\n")
+        f.write("\n")
+        
+        # Per-Run Statistics (Individual Inference Details)
+        f.write("## Per-Run Statistics\n\n")
+        f.write("Detailed metrics for each individual inference:\n\n")
+        f.write("| Run | Latency (s) | LLM Calls | Tokens In | Tokens Out | Spans (T/B/E) | Span Tagging Calls | Severity Calls |\n")
+        f.write("|-----|-------------|-----------|-----------|------------|----------------|-------------------|----------------|\n")
+        
+        valid_metrics = [m for m in self.response_metrics if "error" not in m]
+        for i, metrics in enumerate(valid_metrics, 1):
+            stages = metrics.get("stages", {})
+            span_tagging_calls = stages.get("span_tagging", {}).get("llm_calls", 0)
+            severity_calls = stages.get("severity_scoring", {}).get("llm_calls", 0)
+            f.write(f"| {i} | {metrics.get('wall_clock_seconds_total', 0):.2f} | "
+                   f"{metrics.get('llm_calls_total', 0)} | "
+                   f"{metrics.get('tokens_in_total', 0)} | "
+                   f"{metrics.get('tokens_out_total', 0)} | "
+                   f"{metrics.get('num_trust_spans', 0)}/{metrics.get('num_bias_spans', 0)}/{metrics.get('num_explainability_spans', 0)} | "
+                   f"{span_tagging_calls} | {severity_calls} |\n")
+        f.write("\n")
+        
+        # vLLM Batch Metrics Section
+        f.write("## vLLM Batch Processing Metrics\n\n")
+        f.write("**Location**: Stored in `runtime_summary.json` under `batch_metrics` key\n\n")
+        f.write("Batch-level throughput and latency metrics extracted from vLLM operations:\n\n")
+        
+        if self.batch_metrics:
+            # Aggregate batch metrics by stage
+            batch_by_stage = {}
+            for batch in self.batch_metrics:
+                stage = batch.get("stage", "unknown")
+                if stage not in batch_by_stage:
+                    batch_by_stage[stage] = {
+                        "count": 0,
+                        "total_batch_size": 0,
+                        "total_duration": 0.0,
+                        "throughputs": [],
+                        "latencies": []
+                    }
+                batch_by_stage[stage]["count"] += 1
+                batch_by_stage[stage]["total_batch_size"] += batch.get("batch_size", 0)
+                batch_by_stage[stage]["total_duration"] += batch.get("batch_duration", 0.0)
+                batch_by_stage[stage]["throughputs"].append(batch.get("throughput_items_per_sec", 0.0))
+                batch_by_stage[stage]["latencies"].append(batch.get("avg_latency_per_item", 0.0))
+            
+            f.write("| Stage | Batch Count | Avg Batch Size | Avg Throughput (items/s) | Avg Latency/Item (s) |\n")
+            f.write("|-------|-------------|----------------|---------------------------|----------------------|\n")
+            
+            for stage in ["span_tagging", "severity_scoring", "aggregation_and_ci"]:
+                if stage in batch_by_stage:
+                    data = batch_by_stage[stage]
+                    avg_batch_size = data["total_batch_size"] / data["count"] if data["count"] > 0 else 0
+                    avg_throughput = statistics.mean(data["throughputs"]) if data["throughputs"] else 0.0
+                    avg_latency = statistics.mean(data["latencies"]) if data["latencies"] else 0.0
+                    f.write(f"| {stage} | {data['count']} | {avg_batch_size:.1f} | {avg_throughput:.2f} | {avg_latency:.3f} |\n")
+                else:
+                    f.write(f"| {stage} | 0 | - | - | - |\n")
+        else:
+            f.write("*No batch metrics collected (may indicate non-vLLM provider or no batched operations)*\n")
         f.write("\n")
         
         # Worked Example
