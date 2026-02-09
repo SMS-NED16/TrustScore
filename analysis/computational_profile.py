@@ -29,7 +29,6 @@ import random
 from pipeline.orchestrator import TrustScorePipeline
 from config.settings import TrustScoreConfig, JudgeConfig, LLMProvider
 from models.llm_record import LLMRecord, SpansLevelTags, GradedSpans
-from models.error_type import ErrorType
 
 # Try to import tiktoken for token counting (fallback if not available)
 try:
