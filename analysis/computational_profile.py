@@ -296,6 +296,10 @@ class PipelineProfiler:
         print(f"[DEBUG Profiling] Wrapped {judge_count} unique judge providers (out of {len(unique_providers)} total provider instances)")
         
         # Stage 1: Span Tagging (includes error classification)
+        # Update profiling stage right before execution to ensure correct attribution
+        if hasattr(self.pipeline.span_tagger, 'llm_provider'):
+            self.pipeline.span_tagger.llm_provider._profiling_stage = "span_tagging"
+        
         llm_record = self.pipeline._create_llm_record(prompt, response, model, None)
         spans_tags, span_tagging_time = self._instrument_stage(
             "span_tagging",
@@ -309,6 +313,12 @@ class PipelineProfiler:
             span_counts[span.type.value] = span_counts.get(span.type.value, 0) + 1
         
         # Stage 2: Severity Scoring (judge evaluations)
+        # Update profiling stage right before execution to ensure correct attribution
+        for category in ["trustworthiness", "bias", "explainability"]:
+            for judge in self.pipeline.judges.get(category, {}).values():
+                if hasattr(judge, 'llm_provider'):
+                    judge.llm_provider._profiling_stage = "severity_scoring"
+        
         graded_spans, severity_scoring_time = self._instrument_stage(
             "severity_scoring",
             self.pipeline._grade_spans,
