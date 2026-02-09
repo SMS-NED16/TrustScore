@@ -115,6 +115,36 @@ class PipelineProfiler:
         if not hasattr(provider, '_original_generate'):
             provider._original_generate = provider.generate
         
+        # Wrap batch_generate if it exists (for vLLM batching)
+        if hasattr(provider, 'batch_generate') and not hasattr(provider, '_original_batch_generate'):
+            provider._original_batch_generate = provider.batch_generate
+            
+            profiler_self = self
+            
+            def profiled_batch_generate(messages_list, **kwargs):
+                # Track call (one batch call processes multiple items)
+                profiler_self.llm_call_counts[stage_name] += 1
+                
+                # Call original
+                results = provider._original_batch_generate(messages_list, **kwargs)
+                
+                # Count tokens for batch (approximate if not available from API)
+                if not (hasattr(provider, 'client') and hasattr(provider.client, 'chat')):
+                    # Approximate tokens for all prompts in batch
+                    total_tokens_in = 0
+                    total_tokens_out = 0
+                    for messages in messages_list:
+                        full_text = " ".join([m.get("content", "") for m in messages if isinstance(m, dict)])
+                        total_tokens_in += profiler_self._count_tokens_approximate(full_text)
+                    for result in results:
+                        total_tokens_out += profiler_self._count_tokens_approximate(str(result))
+                    profiler_self.token_counts[stage_name]["in"] += total_tokens_in
+                    profiler_self.token_counts[stage_name]["out"] += total_tokens_out
+                
+                return results
+            
+            provider.batch_generate = profiled_batch_generate
+        
         # For OpenAI provider, also wrap the client's chat.completions.create
         if hasattr(provider, 'client') and hasattr(provider.client, 'chat'):
             if not hasattr(provider.client.chat.completions, '_original_create'):
@@ -235,6 +265,27 @@ class PipelineProfiler:
             total_tokens_in = self._count_tokens_approximate(prompt + response)
             total_tokens_out = self._count_tokens_approximate(str(aggregated_output.summary))
         
+        # Serialize aggregated output for storage
+        try:
+            if hasattr(aggregated_output, 'model_dump'):
+                # Pydantic v2
+                trustscore_output = aggregated_output.model_dump()
+            elif hasattr(aggregated_output, 'dict'):
+                # Pydantic v1
+                trustscore_output = aggregated_output.dict()
+            else:
+                # Fallback: convert to dict manually
+                trustscore_output = {
+                    "task_prompt": aggregated_output.task_prompt,
+                    "llm_response": aggregated_output.llm_response,
+                    "model_metadata": aggregated_output.model_metadata.dict() if hasattr(aggregated_output.model_metadata, 'dict') else str(aggregated_output.model_metadata),
+                    "summary": aggregated_output.summary.dict() if hasattr(aggregated_output.summary, 'dict') else str(aggregated_output.summary),
+                    "errors": {k: v.dict() if hasattr(v, 'dict') else str(v) for k, v in aggregated_output.errors.items()}
+                }
+        except Exception as e:
+            print(f"[WARNING] Could not serialize aggregated_output: {e}")
+            trustscore_output = None
+        
         metrics = {
             "wall_clock_seconds_total": total_time,
             "llm_calls_total": total_calls,
@@ -245,6 +296,7 @@ class PipelineProfiler:
             "num_bias_spans": span_counts["B"],
             "num_explainability_spans": span_counts["E"],
             "num_error_spans": span_counts["total"],
+            "trustscore_output": trustscore_output,
             "stages": {
                 "span_tagging": {
                     "wall_clock_seconds": span_tagging_time,
@@ -512,6 +564,34 @@ class PipelineProfiler:
         with open(md_path, 'w') as f:
             self._write_markdown_report(f, stats, metadata, config_name)
         print(f"[Output] Saved Markdown to {md_path}")
+        
+        # Save TrustScore outputs as JSONL
+        self._save_trustscore_outputs(output_dir)
+    
+    def _save_trustscore_outputs(self, output_dir: str = "paper_materials"):
+        """Save TrustScore outputs for each sample as JSONL"""
+        output_path = os.path.join(output_dir, "trustscore_outputs.jsonl")
+        with open(output_path, 'w') as f:
+            for metrics in self.response_metrics:
+                if "trustscore_output" in metrics and metrics["trustscore_output"] is not None:
+                    # Serialize the output (handle datetime, nested objects, etc.)
+                    output_data = self._serialize_for_json(metrics["trustscore_output"])
+                    json.dump(output_data, f, default=str)
+                    f.write('\n')
+        print(f"[Output] Saved TrustScore outputs to {output_path}")
+    
+    def _serialize_for_json(self, obj):
+        """Recursively serialize objects for JSON (handle datetime, etc.)"""
+        if isinstance(obj, dict):
+            return {k: self._serialize_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._serialize_for_json(item) for item in obj]
+        elif hasattr(obj, 'isoformat'):  # datetime objects
+            return obj.isoformat()
+        elif hasattr(obj, '__dict__'):
+            return self._serialize_for_json(obj.__dict__)
+        else:
+            return obj
     
     def _write_markdown_report(self, f, stats: Dict[str, Any], metadata: Dict[str, Any], config_name: str):
         """Write paper-ready markdown report"""
