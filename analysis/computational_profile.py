@@ -673,14 +673,13 @@ def create_config_with_judge_count(num_judges_per_category: int,
     
     # Auto-detect provider if not specified
     if provider is None:
-        # Use VLLM for HuggingFace model IDs (contains "/")
-        # Use LLaMA for local paths (if model_path provided)
+        # Use VLLM for HuggingFace model IDs (contains "/") - this is the default for RunPod
+        # Use LLaMA only if model_path is explicitly provided (local models)
         if model_path:
             provider = LLMProvider.LLAMA
-        elif "/" in model:  # HuggingFace model ID
-            provider = LLMProvider.VLLM
         else:
-            # Default to VLLM for RunPod/Colab environments
+            # Default to VLLM for HuggingFace models and RunPod/Colab environments
+            # VLLM works with HuggingFace model IDs directly
             provider = LLMProvider.VLLM
     
     # Create span tagger config with hyperparameters
