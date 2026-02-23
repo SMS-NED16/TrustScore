@@ -17,7 +17,7 @@ _PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from alignment.config_space import vector_to_config, config_to_dict
+from alignment.config_space import vector_to_config, config_to_dict, config_to_vector
 from alignment.scoring import (
     compute_correlation_for_samples,
     save_to_cache,
@@ -283,6 +283,11 @@ def run(
         else:
             continue
         best_configs[m] = {"config_vector": best_vec, "config_dict": best_dict}
+
+    # Include default (pipeline) config so report shows baseline correlations
+    default_vec = config_to_vector(pipeline_config)
+    default_dict = config_to_dict(pipeline_config)
+    best_configs = {"default": {"config_vector": default_vec, "config_dict": default_dict}, **best_configs}
 
     with open(os.path.join(run_dir, "best_configs.json"), "w", encoding="utf-8") as f:
         json.dump(best_configs, f, indent=2)
