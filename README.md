@@ -397,3 +397,9 @@ TrustScore/
 ## Support
 
 For questions and support, please open an issue on GitHub.
+
+## Citation
+
+If you use TrustScore in your research, please cite our paper:
+
+**Preprint**: [TrustScore: Evaluating Trustworthiness, Bias, and Explainability in LLM Responses](https://drive.google.com/file/d/1xi3VC0p3DnEIG5vg2ucGFfALInNsXA8n/view?usp=sharing) (Currently under review at IEEE Access)
