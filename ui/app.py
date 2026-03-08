@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pipeline.orchestrator import TrustScorePipeline, analyze_llm_response
 from config.settings import load_config, TrustScoreConfig
+from recommender.service import recommend_judges, recommend_model
+from recommender.config import get_judge_domains, get_taxonomy_tree, resolve_taxonomy_path
 
 # Get the directory where this file is located
 BASE_DIR = Path(__file__).parent
@@ -365,12 +367,133 @@ def format_result(result, pipeline: TrustScorePipeline) -> Dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Recommender routes
+# ---------------------------------------------------------------------------
+
+@app.route('/recommender')
+def recommender_page():
+    """Serve the Judge & Model Recommender UI."""
+    return send_from_directory(str(STATIC_DIR), 'recommender.html')
+
+
+@app.route('/api/recommender/taxonomy', methods=['GET'])
+def recommender_taxonomy():
+    """Return the full taxonomy tree and judge-domain aliases."""
+    try:
+        tree = get_taxonomy_tree()
+        domains = get_judge_domains()
+        return jsonify({
+            "taxonomy": tree,
+            "judge_domains": {
+                k: v.model_dump() for k, v in domains.items()
+            },
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/recommender/taxonomy/resolve', methods=['GET'])
+def recommender_taxonomy_resolve():
+    """Resolve a taxonomy path and return node info (children or leaf details)."""
+    path = request.args.get('path', '')
+    if not path:
+        return jsonify({"error": "Missing 'path' query parameter"}), 400
+    try:
+        node = resolve_taxonomy_path(path)
+        return jsonify(node.model_dump())
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/recommend-judges', methods=['POST'])
+def api_recommend_judges():
+    """
+    Recommend judges for a domain.
+
+    Request body:
+    {
+        "domain": "summarization",
+        "top_k": 3,
+        "evaluated_model_name": null,
+        "evaluated_model_family": null,
+        "exclude_same_family": true
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON body provided"}), 400
+
+        domain = data.get('domain', '').strip()
+        if not domain:
+            return jsonify({"error": "domain is required"}), 400
+
+        top_k = int(data.get('top_k', 3))
+        result = recommend_judges(
+            domain=domain,
+            top_k=top_k,
+            evaluated_model_name=data.get('evaluated_model_name'),
+            evaluated_model_family=data.get('evaluated_model_family'),
+            exclude_same_family=data.get('exclude_same_family', True),
+        )
+        return jsonify({"success": True, "result": result})
+
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc() if app.debug else None,
+        }), 500
+
+
+@app.route('/api/recommend-model', methods=['POST'])
+def api_recommend_model():
+    """
+    Recommend models for a specific task via taxonomy.
+
+    Request body:
+    {
+        "taxonomy_path": "trustworthiness.factuality.multi_scenario",
+        "top_k": 5
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON body provided"}), 400
+
+        taxonomy_path = data.get('taxonomy_path', '').strip()
+        if not taxonomy_path:
+            return jsonify({"error": "taxonomy_path is required"}), 400
+
+        top_k = int(data.get('top_k', 5))
+        result = recommend_model(
+            taxonomy_path=taxonomy_path,
+            top_k=top_k,
+        )
+        return jsonify({"success": True, "result": result})
+
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc() if app.debug else None,
+        }), 500
+
+
 if __name__ == '__main__':
-    # Run in debug mode for development
     print("=" * 60)
     print("MADIX Web UI Starting...")
     print("=" * 60)
     print(f"Server will be available at: http://localhost:5000")
+    print(f"Recommender UI at: http://localhost:5000/recommender")
     print(f"Static files directory: {STATIC_DIR}")
     print("=" * 60)
     print("Press Ctrl+C to stop the server")

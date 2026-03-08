@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MADIX - Judge &amp; Model Recommender</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Recommender-specific styles */
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 1.5rem;
+        }
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { color: var(--primary-color); }
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 0.25rem; }
+        .form-group label { font-weight: 500; font-size: 0.9rem; color: var(--text-primary); }
+        .form-group input, .form-group select {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.95rem;
+        }
+        .form-group small { color: var(--text-secondary); font-size: 0.8rem; }
+        .checkbox-row {
+            display: flex; align-items: center; gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: #fff;
+            border: none;
+            padding: 0.6rem 1.5rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .results-card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            padding: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        .results-card h3 { margin-bottom: 0.75rem; }
+
+        .summary-bar {
+            display: flex; gap: 1.5rem; flex-wrap: wrap;
+            padding: 0.75rem 1rem;
+            background: #f0f4ff;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        .summary-bar span { color: var(--text-secondary); }
+        .summary-bar strong { color: var(--text-primary); }
+
+        .rank-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .rank-table th {
+            text-align: left;
+            padding: 0.6rem 0.75rem;
+            border-bottom: 2px solid var(--border-color);
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .rank-table td {
+            padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .rank-table tr:last-child td { border-bottom: none; }
+        .rank-table tr:hover { background: #f9fafb; }
+
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-nvidia { background: #76b900; color: #fff; }
+        .badge-prollm { background: #6366f1; color: #fff; }
+        .badge-domain { background: #f59e0b; color: #fff; }
+
+        .rank-cell { font-variant-numeric: tabular-nums; }
+        .rank-cell.missing { color: var(--text-secondary); }
+
+        /* Taxonomy tree */
+        .taxonomy-nav {
+            display: flex; flex-wrap: wrap; gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .taxonomy-crumb {
+            color: var(--primary-color);
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .taxonomy-crumb:hover { text-decoration: underline; }
+        .taxonomy-sep { color: var(--text-secondary); }
+
+        .taxonomy-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .taxonomy-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .taxonomy-card:hover {
+            border-color: var(--primary-color);
+            box-shadow: var(--shadow);
+        }
+        .taxonomy-card .card-title { font-weight: 600; margin-bottom: 0.25rem; }
+        .taxonomy-card .card-type { font-size: 0.8rem; color: var(--text-secondary); }
+
+        .benchmark-info {
+            padding: 0.75rem 1rem;
+            background: #f0f9ff;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        .benchmark-info span { margin-right: 1.5rem; }
+
+        details.trace-section {
+            margin-top: 1rem;
+        }
+        details.trace-section summary {
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+        details.trace-section pre {
+            margin-top: 0.5rem;
+            padding: 0.75rem;
+            background: #f3f4f6;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            overflow-x: auto;
+        }
+
+        .error-msg {
+            color: var(--danger-color);
+            padding: 0.75rem 1rem;
+            background: #fef2f2;
+            border-radius: 6px;
+            margin-top: 1rem;
+        }
+
+        .loading { display: none; text-align: center; padding: 2rem; color: var(--text-secondary); }
+        .loading.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>MADIX Recommender</h1>
+            <p class="subtitle">Judge &amp; Model Recommendation Engine</p>
+            <nav style="margin-top: 0.75rem;">
+                <a href="/" style="color: var(--primary-color); text-decoration: none; font-weight: 500;">&larr; Response Analyzer</a>
+            </nav>
+        </header>
+
+        <div class="main-content">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="judge">Recommend a Judge</button>
+                <button class="tab-btn" data-tab="model">Recommend a Model</button>
+            </div>
+
+            <!-- ===================== JUDGE TAB ===================== -->
+            <div id="tab-judge" class="tab-panel active">
+                <section class="input-section">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="judgeDomain">Domain</label>
+                            <select id="judgeDomain"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="judgeTopK">Top-K</label>
+                            <input type="number" id="judgeTopK" value="3" min="1" max="20">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="evalModelName">Evaluated Model Name</label>
+                            <input type="text" id="evalModelName" placeholder="Optional, e.g. gpt-4o">
+                            <small>Model being evaluated (for same-family exclusion)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="evalModelFamily">Evaluated Model Family</label>
+                            <input type="text" id="evalModelFamily" placeholder="Optional, e.g. gpt">
+                            <small>Overrides auto-inferred family</small>
+                        </div>
+                    </div>
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="excludeSameFamily" checked>
+                        <label for="excludeSameFamily">Exclude judges from the same model family</label>
+                    </div>
+                    <button class="btn-primary" id="btnJudge">Get Judge Recommendations</button>
+                </section>
+
+                <div class="loading" id="judgeLoading">Fetching recommendations...</div>
+                <div id="judgeError"></div>
+                <div id="judgeResults"></div>
+            </div>
+
+            <!-- ===================== MODEL TAB ===================== -->
+            <div id="tab-model" class="tab-panel">
+                <section class="input-section">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="modelTopK">Top-K</label>
+                            <input type="number" id="modelTopK" value="5" min="1" max="20">
+                        </div>
+                        <div class="form-group"></div>
+                    </div>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                        Navigate the taxonomy below to select a task, then view benchmark rankings.
+                    </p>
+                </section>
+
+                <div id="taxonomyBreadcrumb" class="taxonomy-nav"></div>
+                <div id="taxonomyCards" class="taxonomy-cards"></div>
+
+                <div class="loading" id="modelLoading">Fetching rankings...</div>
+                <div id="modelError"></div>
+                <div id="modelResults"></div>
+            </div>
+        </div>
+    </div>
+    <script src="recommender.js"></script>
+</body>
+</html>
