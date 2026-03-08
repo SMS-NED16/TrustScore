@@ -188,7 +188,7 @@ function resolveNode(segments) {
         if (!node[seg]) return null;
         node = node[seg];
         if (node.children && !node.benchmark) {
-            // keep reference to children for next iteration
+            node = node.children;
         }
     }
     return node;
