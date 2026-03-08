@@ -5,7 +5,7 @@ Evaluate best configs on train, val, test and produce correlation table and repo
 import json
 import os
 from typing import List, Dict, Any, Optional
-from alignment.config_space import vector_to_config, config_to_dict
+from alignment.config_space import vector_to_config, config_to_dict, SUBTYPE_PARAMS
 from alignment.scoring import compute_correlation_for_samples
 from config.settings import TrustScoreConfig
 
@@ -62,6 +62,10 @@ def evaluate_best_configs(
     return alignment_results
 
 
+def _fmt(x: Any) -> str:
+    return f"{x:.4f}" if x is not None and x == x else "—"
+
+
 def write_report(
     results_dir: str,
     run_id: str,
@@ -81,6 +85,7 @@ def write_report(
         f"- **Task:** {task_name}",
         f"- **Run ID:** {run_id}",
         f"- **Splits:** train={n_train}, val={n_val}, test={n_test}",
+        f"- **Config dimensions:** {4 + len(SUBTYPE_PARAMS)} (4 base + {len(SUBTYPE_PARAMS)} subtype weights)",
         "",
         "## Best configs per method",
         "",
@@ -92,6 +97,8 @@ def write_report(
         lines.append(json.dumps(data.get("config_dict", data), indent=2))
         lines.append("```")
         lines.append("")
+
+    # --- Correlation table ---
     lines.append("## Correlation (Pearson / Spearman)")
     lines.append("")
     lines.append("| Method | Train Pearson | Train Spearman | Val Pearson | Val Spearman | Test Pearson | Test Spearman |")
@@ -103,10 +110,28 @@ def write_report(
         vs = res.get("val_spearman")
         ep = res.get("test_pearson")
         es = res.get("test_spearman")
-        def fmt(x):
-            return f"{x:.4f}" if x is not None and x == x else "—"
-        lines.append(f"| {method} | {fmt(tp)} | {fmt(ts)} | {fmt(vp)} | {fmt(vs)} | {fmt(ep)} | {fmt(es)} |")
+        lines.append(f"| {method} | {_fmt(tp)} | {_fmt(ts)} | {_fmt(vp)} | {_fmt(vs)} | {_fmt(ep)} | {_fmt(es)} |")
     lines.append("")
+
+    # --- Error subtype weight comparison table ---
+    methods = list(best_configs.keys())
+    subtype_keys = [f"{cat}_{sub}" for cat, sub in SUBTYPE_PARAMS]
+    lines.append("## Error Subtype Weights Comparison")
+    lines.append("")
+    header = "| Subtype | " + " | ".join(methods) + " |"
+    sep = "|---------|" + "|".join(["--------"] * len(methods)) + "|"
+    lines.append(header)
+    lines.append(sep)
+    for key in subtype_keys:
+        row = f"| {key} |"
+        for m in methods:
+            cdict = best_configs[m].get("config_dict", {})
+            sw = cdict.get("error_subtype_weights", {})
+            val = sw.get(key)
+            row += f" {_fmt(val)} |"
+        lines.append(row)
+    lines.append("")
+
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return path

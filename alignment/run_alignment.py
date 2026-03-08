@@ -6,6 +6,7 @@ saves splits/manifests/results, and writes the report.
 import argparse
 import json
 import os
+import pickle
 import sys
 import uuid
 from datetime import datetime
@@ -133,6 +134,7 @@ def run(
     cache_dir: str = "alignment/cache",
     results_dir: str = "alignment/results",
     refresh_cache: bool = False,
+    skip_inference: bool = False,
     splits_manifest_path: Optional[str] = None,
     api_key: Optional[str] = None,
     use_llama: bool = False,
@@ -144,6 +146,10 @@ def run(
     Main entry point. Loads task, splits (or loads from splits_manifest_path), populates cache,
     runs selected optimizers, evaluates best configs on train/val/test, writes artifacts.
     Returns a result dict with run_id, results_dir, paths, best_configs, alignment_results.
+
+    If skip_inference is True, the cache population step is skipped entirely --
+    the existing cache_dir must already contain inference results for all samples.
+
     If use_llama is True, pipeline uses LLaMA (VLLM with HuggingFace model ID, or LLAMA provider
     with model_path) instead of the default OpenAI config.
     """
@@ -228,10 +234,14 @@ def run(
         )
     else:
         pipeline_config = load_config()
-    _ensure_cache(
-        task_name, train_samples, val_samples, test_samples,
-        cache_dir, refresh_cache, pipeline_config, api_key,
-    )
+
+    if skip_inference:
+        print(f"[skip-inference] Skipping cache population; reading from {cache_dir}")
+    else:
+        _ensure_cache(
+            task_name, train_samples, val_samples, test_samples,
+            cache_dir, refresh_cache, pipeline_config, api_key,
+        )
 
     def make_evaluate_fn(samples: List[Dict]):
         def evaluate_fn(config):
@@ -256,6 +266,7 @@ def run(
                     "timestamp": datetime.now().isoformat(),
                 }, default=str) + "\n")
         on_eval = _on_eval
+        artifact = None
         if m == "a":
             from alignment.optimizers.option_a import run_option_a
             best_vec, best_dict, bp, bs, _ = run_option_a(
@@ -266,20 +277,30 @@ def run(
             )
         elif m == "b":
             from alignment.optimizers.option_b import run_option_b
-            best_vec, best_dict, bp, bs, _ = run_option_b(
+            best_vec, best_dict, bp, bs, artifact = run_option_b(
                 make_evaluate_fn(train_samples),
                 max_evals=max_evals,
                 random_seed=random_seed,
                 on_eval=on_eval,
             )
+            if artifact is not None:
+                pkl_path = os.path.join(run_dir, "lgb_model.pkl")
+                with open(pkl_path, "wb") as pf:
+                    pickle.dump(artifact, pf)
+                print(f"[artifact] LightGBM model saved to {pkl_path}")
         elif m == "c":
             from alignment.optimizers.option_c import run_option_c
-            best_vec, best_dict, bp, bs, _ = run_option_c(
+            best_vec, best_dict, bp, bs, artifact = run_option_c(
                 make_evaluate_fn(train_samples),
                 max_evals=max_evals,
                 random_seed=random_seed,
                 on_eval=on_eval,
             )
+            if artifact is not None:
+                pkl_path = os.path.join(run_dir, "optuna_study.pkl")
+                with open(pkl_path, "wb") as pf:
+                    pickle.dump(artifact, pf)
+                print(f"[artifact] Optuna study saved to {pkl_path}")
         else:
             continue
         best_configs[m] = {"config_vector": best_vec, "config_dict": best_dict}
@@ -330,6 +351,7 @@ def main():
     parser.add_argument("--cache-dir", default="alignment/cache")
     parser.add_argument("--results-dir", default="alignment/results")
     parser.add_argument("--refresh-cache", action="store_true")
+    parser.add_argument("--skip-inference", action="store_true", help="Skip cache population; read inference results from existing cache-dir")
     parser.add_argument("--splits-manifest", type=str, default=None, help="Path to existing splits.json to reuse")
     parser.add_argument("--api-key", type=str, default=None, help="API key for pipeline (OpenAI; not needed when using LLaMA)")
     parser.add_argument("--use-llama", action="store_true", help="Use LLaMA (VLLM or local) instead of OpenAI for judges")
@@ -348,6 +370,7 @@ def main():
         cache_dir=args.cache_dir,
         results_dir=args.results_dir,
         refresh_cache=args.refresh_cache,
+        skip_inference=args.skip_inference,
         splits_manifest_path=args.splits_manifest,
         api_key=args.api_key,
         use_llama=args.use_llama,

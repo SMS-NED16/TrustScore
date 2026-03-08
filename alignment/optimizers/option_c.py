@@ -17,11 +17,11 @@ def run_option_c(
     max_evals: int = 50,
     random_seed: Optional[int] = None,
     on_eval: Optional[Callable[[List[float], Dict, float, float], None]] = None,
-) -> Tuple[List[float], Dict[str, Any], float, float, None]:
+) -> Tuple[List[float], Dict[str, Any], float, float, Any]:
     """
-    Maximize Spearman over the 4-D config space using Optuna.
+    Maximize Spearman over the config space using Optuna.
     evaluate_fn(config) -> (pearson, spearman).
-    Returns (best_vector, best_config_dict, best_pearson, best_spearman, None).
+    Returns (best_vector, best_config_dict, best_pearson, best_spearman, study).
     """
     import optuna
 
@@ -70,4 +70,4 @@ def run_option_c(
     if best_vec is None:
         best_vec = [0.5, 0.3, 0.5, 0.0]
         best_dict = config_to_dict(vector_to_config(best_vec))
-    return (best_vec, best_dict, best_pearson, best_spearman, None)
+    return (best_vec, best_dict, best_pearson, best_spearman, study)
