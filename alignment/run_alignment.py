@@ -197,7 +197,27 @@ def run(
         with open(splits_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
 
-    # Run manifest
+    if use_llama:
+        pipeline_config = _create_llama_config(
+            llama_model=llama_model,
+            model_path=model_path,
+            num_judges_per_category=num_judges_per_category,
+        )
+    else:
+        pipeline_config = load_config()
+
+    # Build a model-aware cache subdirectory so different judge models /
+    # sample counts never overwrite each other.
+    # Layout: <cache_dir>/<model_slug>_n<total_samples>/
+    if use_llama:
+        _model_slug = llama_model.replace("/", "_").replace("\\", "_")
+    else:
+        _model_slug = pipeline_config.span_tagger.model.replace("/", "_").replace("\\", "_")
+    _n_total = len(train_samples) + len(val_samples) + len(test_samples)
+    cache_dir = os.path.join(cache_dir, f"{_model_slug}_n{_n_total}")
+    print(f"[cache] Using cache directory: {cache_dir}")
+
+    # Run manifest (written after cache_dir is finalized)
     run_manifest = {
         "run_id": run_id,
         "task": task_name,
@@ -215,6 +235,7 @@ def run(
         "llama_model": llama_model if use_llama else None,
         "model_path": model_path if use_llama else None,
         "num_judges_per_category": num_judges_per_category if use_llama else None,
+        "judge_model": llama_model if use_llama else pipeline_config.span_tagger.model,
         "timestamp": datetime.now().isoformat(),
     }
     try:
@@ -226,15 +247,6 @@ def run(
         run_manifest["git_commit"] = None
     with open(os.path.join(run_dir, "run_manifest.json"), "w", encoding="utf-8") as f:
         json.dump(run_manifest, f, indent=2)
-
-    if use_llama:
-        pipeline_config = _create_llama_config(
-            llama_model=llama_model,
-            model_path=model_path,
-            num_judges_per_category=num_judges_per_category,
-        )
-    else:
-        pipeline_config = load_config()
 
     if skip_inference:
         print(f"[skip-inference] Skipping cache population; reading from {cache_dir}")
