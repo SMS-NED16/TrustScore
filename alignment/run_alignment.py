@@ -9,6 +9,7 @@ import os
 import pickle
 import sys
 import uuid
+import joblib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -285,8 +286,7 @@ def run(
             )
             if artifact is not None:
                 pkl_path = os.path.join(run_dir, "lgb_model.pkl")
-                with open(pkl_path, "wb") as pf:
-                    pickle.dump(artifact, pf)
+                joblib.dump(artifact, pkl_path)
                 print(f"[artifact] LightGBM model saved to {pkl_path}")
         elif m == "c":
             from alignment.optimizers.option_c import run_option_c
