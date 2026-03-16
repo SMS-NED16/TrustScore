@@ -25,7 +25,7 @@ from alignment.scoring import (
     save_to_cache,
     cache_path,
 )
-from alignment.evaluate import evaluate_best_configs, write_report
+from alignment.evaluate import evaluate_best_configs, compute_per_sample_scores, write_report
 
 
 def _get_run_id() -> str:
@@ -258,9 +258,10 @@ def run(
 
     def make_evaluate_fn(samples: List[Dict]):
         def evaluate_fn(config):
-            return compute_correlation_for_samples(
+            result = compute_correlation_for_samples(
                 config, samples, task, cache_dir, task_name, use_quality=True
-            )[:2]
+            )
+            return result[0], result[1]  # (pearson, spearman) for optimizer compatibility
         return evaluate_fn
 
     configs_log_path = os.path.join(run_dir, "configs_evaluated.jsonl")
@@ -332,6 +333,22 @@ def run(
     with open(os.path.join(run_dir, "alignment_results.json"), "w", encoding="utf-8") as f:
         json.dump(alignment_results, f, indent=2)
 
+    # Save per-sample scores for each method (enables downstream analysis)
+    all_samples = train_samples + val_samples + test_samples
+    sample_scores = {}
+    for method_name, data in best_configs.items():
+        vec = data.get("config_vector")
+        if not vec:
+            continue
+        config = vector_to_config(vec)
+        sample_scores[method_name] = compute_per_sample_scores(
+            config, all_samples, task, cache_dir, task_name
+        )
+    sample_scores_path = os.path.join(run_dir, "sample_scores.json")
+    with open(sample_scores_path, "w", encoding="utf-8") as f:
+        json.dump(sample_scores, f, indent=2)
+    print(f"[artifact] Per-sample scores saved to {sample_scores_path}")
+
     write_report(
         results_dir, run_id, task_name,
         len(train_samples), len(val_samples), len(test_samples),
@@ -348,6 +365,7 @@ def run(
         "alignment_results": alignment_results,
         "alignment_report_path": os.path.join(run_dir, "alignment_report.md"),
         "alignment_results_path": os.path.join(run_dir, "alignment_results.json"),
+        "sample_scores_path": sample_scores_path,
     }
 
 

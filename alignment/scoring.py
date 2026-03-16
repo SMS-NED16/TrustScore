@@ -84,6 +84,25 @@ def reaggregate(
     return out.summary.trust_quality if use_quality else out.summary.trust_score
 
 
+def reaggregate_full(
+    config: TrustScoreConfig,
+    llm_record: LLMRecord,
+    graded_spans: GradedSpans,
+) -> Dict[str, float]:
+    """
+    Re-aggregate with the given config; return per-category quality scores and aggregated score.
+    """
+    agg = Aggregator(config)
+    out = agg.aggregate(llm_record, graded_spans)
+    s = out.summary
+    return {
+        "T": s.agg_quality_T,
+        "E": s.agg_quality_E,
+        "B": s.agg_quality_B,
+        "aggregated": s.trust_quality,
+    }
+
+
 def score_samples(
     config: TrustScoreConfig,
     sample_ids: List[str],
@@ -107,19 +126,41 @@ def score_samples(
     return scores
 
 
+def score_samples_full(
+    config: TrustScoreConfig,
+    sample_ids: List[str],
+    cache_dir: str,
+    task_name: str,
+) -> List[Optional[Dict[str, float]]]:
+    """
+    For each sample_id, load from cache and re-aggregate with config.
+    Returns list of score dicts {"T", "E", "B", "aggregated"} (same order as sample_ids).
+    Missing cache entries get None.
+    """
+    results: List[Optional[Dict[str, float]]] = []
+    for sid in sample_ids:
+        try:
+            rec, spans = load_from_cache(cache_dir, task_name, sid)
+            results.append(reaggregate_full(config, rec, spans))
+        except FileNotFoundError:
+            results.append(None)
+    return results
+
+
 def correlation(
     trust_scores: List[float],
     human_scores: List[float],
-) -> Tuple[float, float]:
+) -> Tuple[float, float, float]:
     """
-    Pearson and Spearman correlation. Filters out None in trust_scores (and corresponding human).
-    Returns (pearson, spearman).
+    Pearson, Spearman, and Kendall correlation.
+    Filters out None in trust_scores (and corresponding human).
+    Returns (pearson, spearman, kendall).
     """
     import numpy as np
-    from scipy.stats import pearsonr, spearmanr
+    from scipy.stats import pearsonr, spearmanr, kendalltau
     pairs = [(t, h) for t, h in zip(trust_scores, human_scores) if t is not None and h is not None]
     if len(pairs) < 2:
-        return (float("nan"), float("nan"))
+        return (float("nan"), float("nan"), float("nan"))
     t, h = zip(*pairs)
     t_arr = np.array(t, dtype=float)
     h_arr = np.array(h, dtype=float)
@@ -131,7 +172,11 @@ def correlation(
         spearman = spearmanr(t_arr, h_arr)[0]
     except Exception:
         spearman = float("nan")
-    return (float(pearson), float(spearman))
+    try:
+        kendall = kendalltau(t_arr, h_arr)[0]
+    except Exception:
+        kendall = float("nan")
+    return (float(pearson), float(spearman), float(kendall))
 
 
 def compute_correlation_for_samples(
@@ -141,15 +186,15 @@ def compute_correlation_for_samples(
     cache_dir: str,
     task_name: str,
     use_quality: bool = True,
-) -> Tuple[float, float, List[float], List[float]]:
+) -> Tuple[float, float, float, List[float], List[float]]:
     """
     Get trust scores for samples (by unique_dataset_id), human scores from task,
-    then Pearson and Spearman. Returns (pearson, spearman, trust_scores, human_scores).
+    then Pearson, Spearman, and Kendall.
+    Returns (pearson, spearman, kendall, trust_scores, human_scores).
     """
     ids = [s.get("unique_dataset_id") or s.get("sample_id", str(i)) for i, s in enumerate(samples)]
     human = [task.get_human_score(s) for s in samples]
     trust = score_samples(config, ids, cache_dir, task_name, use_quality=use_quality)
-    # Filter to only cached
     valid_trust = []
     valid_human = []
     for t, h in zip(trust, human):
@@ -157,6 +202,6 @@ def compute_correlation_for_samples(
             valid_trust.append(t)
             valid_human.append(h)
     if len(valid_trust) < 2:
-        return (float("nan"), float("nan"), trust, human)
-    p, s = correlation(valid_trust, valid_human)
-    return (p, s, trust, human)
+        return (float("nan"), float("nan"), float("nan"), trust, human)
+    p, s, k = correlation(valid_trust, valid_human)
+    return (p, s, k, trust, human)
