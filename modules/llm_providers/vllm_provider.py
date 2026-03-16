@@ -61,9 +61,12 @@ class VLLMProvider(BaseLLMProvider):
             
             # Initialize vLLM with configuration
             # vLLM will pick up HF_TOKEN from environment
+            dtype = self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto"
+            if dtype == "auto" and "gemma" in model_name.lower():
+                dtype = "bfloat16"
             self.llm = LLM(
                 model=model_name,
-                dtype=self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto",
+                dtype=dtype,
                 tensor_parallel_size=1,  # Single GPU for Colab
                 gpu_memory_utilization=0.9,
                 max_model_len=4096,  # Increased to handle longer prompts (SummEval samples)
