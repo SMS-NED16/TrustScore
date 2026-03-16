@@ -49,7 +49,7 @@ def index():
 @app.route('/api/health', methods=['GET'])
 def health():
     """Health check endpoint"""
-    return jsonify({"status": "ok", "service": "MADIX API"})
+    return jsonify({"status": "ok", "service": "TEBScore API"})
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -368,7 +368,7 @@ def format_result(result, pipeline: TrustScorePipeline) -> Dict[str, Any]:
 if __name__ == '__main__':
     # Run in debug mode for development
     print("=" * 60)
-    print("MADIX Web UI Starting...")
+    print("TEBScore Web UI Starting...")
     print("=" * 60)
     print(f"Server will be available at: http://localhost:5000")
     print(f"Static files directory: {STATIC_DIR}")

@@ -1,4 +1,4 @@
-// MADIX UI - Main JavaScript
+// TEBScore UI - Main JavaScript
 
 const API_BASE_URL = window.location.origin;
 
@@ -223,7 +223,7 @@ function getConfidenceRating(confidence) {
 
 // Display results
 function displayResults(result) {
-    // Display MADIX score (quality [0-100], higher = better)
+    // Display TEBScore score (quality [0-100], higher = better)
     const trustScore = result.summary.trust_score;  // Already quality score [0-100]
     trustScoreEl.textContent = `${trustScore.toFixed(1)}%`;
     
