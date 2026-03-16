@@ -51,7 +51,7 @@ def index():
 @app.route('/api/health', methods=['GET'])
 def health():
     """Health check endpoint"""
-    return jsonify({"status": "ok", "service": "MADIX API"})
+    return jsonify({"status": "ok", "service": "TEBScore API"})
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -490,10 +490,10 @@ def api_recommend_model():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("MADIX Web UI Starting...")
+    print("TEBScore Web UI Starting...")
     print("=" * 60)
     print(f"Server will be available at: http://localhost:5000")
-    print(f"Recommender UI at: http://localhost:5000/recommender")
+    print(f"Leaderboards at: http://localhost:5000/recommender")
     print(f"Static files directory: {STATIC_DIR}")
     print("=" * 60)
     print("Press Ctrl+C to stop the server")

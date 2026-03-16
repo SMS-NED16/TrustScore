@@ -1,4 +1,4 @@
-// MADIX Recommender UI
+// TEBScore Leaderboards UI
 
 const API = window.location.origin;
 
