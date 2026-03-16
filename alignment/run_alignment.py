@@ -142,6 +142,8 @@ def run(
     llama_model: str = "meta-llama/Llama-3.1-8B-Instruct",
     model_path: Optional[str] = None,
     num_judges_per_category: int = 3,
+    max_tokens: int = 4096,
+    temperature: float = 0.1,
 ) -> Dict[str, Any]:
     """
     Main entry point. Loads task, splits (or loads from splits_manifest_path), populates cache,
@@ -202,6 +204,8 @@ def run(
             llama_model=llama_model,
             model_path=model_path,
             num_judges_per_category=num_judges_per_category,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
     else:
         pipeline_config = load_config()
@@ -388,6 +392,8 @@ def main():
     parser.add_argument("--llama-model", type=str, default="meta-llama/Llama-3.1-8B-Instruct", help="HuggingFace model ID for VLLM (when --use-llama without --model-path)")
     parser.add_argument("--model-path", type=str, default=None, help="Local model path for LLaMA provider (optional)")
     parser.add_argument("--num-judges-per-category", type=int, default=3, help="Judges per category when using LLaMA")
+    parser.add_argument("--max-tokens", type=int, default=4096, help="Max tokens for LLM generation (span tagger and judges)")
+    parser.add_argument("--temperature", type=float, default=0.1, help="Temperature for LLM generation")
     args = parser.parse_args()
     result = run(
         task_name=args.task,
@@ -407,6 +413,8 @@ def main():
         llama_model=args.llama_model,
         model_path=args.model_path,
         num_judges_per_category=args.num_judges_per_category,
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
     )
     print("Run ID:", result["run_id"])
     print("Run dir:", result["run_dir"])

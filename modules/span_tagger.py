@@ -100,8 +100,8 @@ Remember: Each error span MUST include a clear, detailed explanation explaining 
         """Parse the LLM response to extract span data."""
         content = content.strip()
         if not content:
-            return {"spans": {}}  # Return empty spans instead of raising
-        
+            return {"spans": {}}
+
         # Try markdown code block first
         json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
         if json_block:
@@ -109,7 +109,7 @@ Remember: Each error span MUST include a clear, detailed explanation explaining 
                 return json.loads(json_block.group(1))
             except json.JSONDecodeError:
                 pass
-        
+
         # Try to find JSON object in content
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
@@ -117,10 +117,43 @@ Remember: Each error span MUST include a clear, detailed explanation explaining 
                 return json.loads(json_match.group())
             except json.JSONDecodeError:
                 pass
-        
-        # If all parsing fails, return empty spans (graceful degradation)
+
+        # Try to recover from truncated JSON (common with smaller models / low max_tokens)
+        recovered = self._recover_truncated_json(content)
+        if recovered:
+            return recovered
+
         print(f"[WARNING] Failed to parse JSON, returning empty spans. Content preview: {content[:200]}")
         return {"spans": {}}
+
+    @staticmethod
+    def _recover_truncated_json(content: str) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to salvage complete spans from truncated JSON output.
+        Extracts individual span objects that were fully written before truncation.
+        """
+        span_pattern = re.compile(
+            r'"(\d+)"\s*:\s*(\{[^{}]*\})',
+            re.DOTALL,
+        )
+        matches = span_pattern.findall(content)
+        if not matches:
+            return None
+
+        spans = {}
+        for span_id, span_json in matches:
+            try:
+                span_obj = json.loads(span_json)
+                required = {"start", "end", "type", "subtype", "explanation"}
+                if required.issubset(span_obj.keys()):
+                    spans[span_id] = span_obj
+            except json.JSONDecodeError:
+                continue
+
+        if spans:
+            print(f"[INFO] Recovered {len(spans)} span(s) from truncated JSON")
+            return {"spans": spans}
+        return None
     
     def _create_spans_level_tags(self, spans_data: Dict[str, Any], response_text: str) -> SpansLevelTags:
         """Create SpansLevelTags object from parsed data with configurable validation."""
