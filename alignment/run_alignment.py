@@ -36,6 +36,9 @@ def _get_task(task_name: str):
     if task_name == "summeval":
         from alignment.tasks.summeval_task import SummEvalTask
         return SummEvalTask()
+    if task_name == "simpeval":
+        from alignment.tasks.simpeval_task import SimpEvalTask
+        return SimpEvalTask()
     raise ValueError(f"Unknown task: {task_name}")
 
 
@@ -153,9 +156,10 @@ def _ensure_cache(
                     model_metadata=out.model_metadata,
                 )
                 save_to_cache(cache_dir, task_name, sid, llm_record, out.graded_spans)
-            _log_progress(sid, "done")
         except Exception as e:
             _log_progress(sid, "failed")
+            return
+        _log_progress(sid, "done")
 
     print(f"[Cache] Starting inference: {total} samples, {workers} concurrent worker(s)")
     with ThreadPoolExecutor(max_workers=workers) as executor:
