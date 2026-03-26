@@ -98,16 +98,49 @@ def _ensure_cache(
     refresh_cache: bool,
     pipeline_config: Any,
     api_key: Optional[str],
+    max_concurrent_samples: int = 1,
 ) -> None:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from pipeline.orchestrator import TrustScorePipeline
     from models.llm_record import LLMRecord
+    from config.settings import LLMProvider
+
+    # vLLM's LLM object is not thread-safe — keep sequential for GPU providers
+    is_vllm = pipeline_config.span_tagger.provider == LLMProvider.VLLM
+    workers = 1 if is_vllm else max(1, max_concurrent_samples)
+
     pipeline = TrustScorePipeline(config=pipeline_config, api_key=api_key, use_mock=False)
     all_samples = train_samples + val_samples + test_samples
-    for i, sample in enumerate(all_samples):
+    total = len(all_samples)
+
+    # Thread-safe progress counters
+    lock = threading.Lock()
+    counts = {"done": 0, "cached": 0, "failed": 0}
+
+    def _log_progress(sid: str, status: str) -> None:
+        with lock:
+            counts["done"] += 1
+            if status == "cached":
+                counts["cached"] += 1
+            elif status == "failed":
+                counts["failed"] += 1
+            remaining = total - counts["done"]
+            print(
+                f"[Cache] {status.upper():8s} {counts['done']:>4}/{total}"
+                f" | remaining: {remaining}"
+                f" | cached: {counts['cached']}"
+                f" | failed: {counts['failed']}"
+                f" | id: {sid}"
+            )
+
+    def _process_sample(args: tuple) -> None:
+        i, sample = args
         sid = sample.get("unique_dataset_id") or sample.get("sample_id", str(i))
         path = cache_path(cache_dir, task_name, sid)
         if not refresh_cache and os.path.exists(path):
-            continue
+            _log_progress(sid, "cached")
+            return
         prompt = sample.get("prompt", "")
         response = sample.get("response", "")
         model = sample.get("model", "unknown")
@@ -120,8 +153,15 @@ def _ensure_cache(
                     model_metadata=out.model_metadata,
                 )
                 save_to_cache(cache_dir, task_name, sid, llm_record, out.graded_spans)
-        except Exception:
-            pass
+            _log_progress(sid, "done")
+        except Exception as e:
+            _log_progress(sid, "failed")
+
+    print(f"[Cache] Starting inference: {total} samples, {workers} concurrent worker(s)")
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_process_sample, (i, s)) for i, s in enumerate(all_samples)]
+        for future in as_completed(futures):
+            future.result()  # re-raise any unexpected exceptions
 
 
 def run(
@@ -144,6 +184,8 @@ def run(
     num_judges_per_category: int = 3,
     max_tokens: int = 4096,
     temperature: float = 0.1,
+    max_concurrent_samples: int = 1,
+    max_concurrent_api_calls: int = 8,
 ) -> Dict[str, Any]:
     """
     Main entry point. Loads task, splits (or loads from splits_manifest_path), populates cache,
@@ -255,9 +297,14 @@ def run(
     if skip_inference:
         print(f"[skip-inference] Skipping cache population; reading from {cache_dir}")
     else:
+        from config.settings import LLMProvider
+        from modules.llm_providers.openai_provider import set_max_concurrent_api_calls
+        if not use_llama:
+            set_max_concurrent_api_calls(max_concurrent_api_calls)
         _ensure_cache(
             task_name, train_samples, val_samples, test_samples,
             cache_dir, refresh_cache, pipeline_config, api_key,
+            max_concurrent_samples=max_concurrent_samples,
         )
 
     def make_evaluate_fn(samples: List[Dict]):
