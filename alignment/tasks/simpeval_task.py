@@ -58,7 +58,7 @@ class SimpEvalTask(AlignmentTask):
         ds = load_dataset(self._hf_dataset_name, split="train")
 
         samples = []
-        for row in ds:
+        for row_idx, row in enumerate(ds):
             # Filter out human-written references
             system = row.get("Input.system", "")
             if system in HUMAN_SYSTEMS:
@@ -70,12 +70,19 @@ class SimpEvalTask(AlignmentTask):
             if not original or not simplified:
                 continue
 
-            doc_id = row.get("id", "")
-            sample_id = f"{doc_id}-{system}"
+            # Use the dataset's id field for document-level grouping if present,
+            # falling back to row index to guarantee a non-empty value.
+            raw_doc_id = row.get("id")
+            doc_id = str(raw_doc_id) if raw_doc_id is not None and str(raw_doc_id).strip() else str(row_idx)
+
+            # unique_dataset_id must be unique per row so cache entries never collide.
+            # We embed both doc_id and system so the split logic can still group by doc_id.
+            unique_dataset_id = f"{doc_id}-{system}"
 
             sample = {
-                "unique_dataset_id": str(doc_id),
-                "sample_id": sample_id,
+                "unique_dataset_id": unique_dataset_id,
+                "sample_id": unique_dataset_id,
+                "doc_id": doc_id,
                 "prompt": f"Simplify the following text:\n\n{original}",
                 "response": simplified,
                 "model": system,
@@ -109,10 +116,9 @@ class SimpEvalTask(AlignmentTask):
         val_ratio: float = 0.2,
         random_seed: int = 42,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Split by unique_dataset_id (document id) so all system outputs for a
-        given document never cross splits."""
+        """Split by doc_id so all system outputs for a given document never cross splits."""
         rng = random.Random(random_seed)
-        ids = [s.get("unique_dataset_id") or s.get("sample_id", str(i)) for i, s in enumerate(samples)]
+        ids = [s.get("doc_id") or s.get("unique_dataset_id") or s.get("sample_id", str(i)) for i, s in enumerate(samples)]
         unique_ids = list(dict.fromkeys(ids))
         rng.shuffle(unique_ids)
         n = len(unique_ids)
@@ -125,7 +131,7 @@ class SimpEvalTask(AlignmentTask):
         train_ids = set(unique_ids[:n_train])
         val_ids = set(unique_ids[n_train: n_train + n_val])
         test_ids = set(unique_ids[n_train + n_val:])
-        train = [s for s in samples if (s.get("unique_dataset_id") or s.get("sample_id", "")) in train_ids]
-        val = [s for s in samples if (s.get("unique_dataset_id") or s.get("sample_id", "")) in val_ids]
-        test = [s for s in samples if (s.get("unique_dataset_id") or s.get("sample_id", "")) in test_ids]
+        train = [s for s in samples if (s.get("doc_id") or s.get("unique_dataset_id") or s.get("sample_id", "")) in train_ids]
+        val = [s for s in samples if (s.get("doc_id") or s.get("unique_dataset_id") or s.get("sample_id", "")) in val_ids]
+        test = [s for s in samples if (s.get("doc_id") or s.get("unique_dataset_id") or s.get("sample_id", "")) in test_ids]
         return train, val, test
