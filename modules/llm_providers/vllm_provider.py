@@ -62,7 +62,7 @@ class VLLMProvider(BaseLLMProvider):
             # Initialize vLLM with configuration
             # vLLM will pick up HF_TOKEN from environment
             dtype = self.config.torch_dtype if hasattr(self.config, 'torch_dtype') else "auto"
-            if dtype == "auto" and "gemma" in model_name.lower():
+            if "gemma" in model_name.lower() and dtype != "bfloat16":
                 dtype = "bfloat16"
             self.llm = LLM(
                 model=model_name,
