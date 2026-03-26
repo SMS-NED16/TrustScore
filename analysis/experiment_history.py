@@ -204,11 +204,19 @@ def summary_table(df: pd.DataFrame) -> pd.DataFrame:
 
     out = df[[c for c in keep if c in df.columns]].copy()
 
+    def _safe_max(sub: pd.DataFrame) -> pd.Series:
+        return sub.max(axis=1, skipna=True).round(4)
+
+    def _safe_idxmax(sub: pd.DataFrame) -> pd.Series:
+        return sub.apply(
+            lambda row: row.idxmax() if row.notna().any() else None, axis=1
+        )
+
     if pearson_cols:
-        out["best_test_pearson"]  = df[pearson_cols].max(axis=1).round(4)
-        out["best_method"]        = df[pearson_cols].idxmax(axis=1).str.replace("_test_pearson", "")
+        out["best_test_pearson"] = _safe_max(df[pearson_cols])
+        out["best_method"]       = _safe_idxmax(df[pearson_cols]).str.replace("_test_pearson", "", regex=False)
     if spearman_cols:
-        out["best_test_spearman"] = df[spearman_cols].max(axis=1).round(4)
+        out["best_test_spearman"] = _safe_max(df[spearman_cols])
 
     train_pearson_cols  = [c for c in df.columns if c.endswith("_train_pearson")]
     train_spearman_cols = [c for c in df.columns if c.endswith("_train_spearman")]
@@ -216,13 +224,13 @@ def summary_table(df: pd.DataFrame) -> pd.DataFrame:
     val_spearman_cols   = [c for c in df.columns if c.endswith("_val_spearman")]
 
     if train_pearson_cols:
-        out["best_train_pearson"]  = df[train_pearson_cols].max(axis=1).round(4)
+        out["best_train_pearson"]  = _safe_max(df[train_pearson_cols])
     if train_spearman_cols:
-        out["best_train_spearman"] = df[train_spearman_cols].max(axis=1).round(4)
+        out["best_train_spearman"] = _safe_max(df[train_spearman_cols])
     if val_pearson_cols:
-        out["best_val_pearson"]    = df[val_pearson_cols].max(axis=1).round(4)
+        out["best_val_pearson"]    = _safe_max(df[val_pearson_cols])
     if val_spearman_cols:
-        out["best_val_spearman"]   = df[val_spearman_cols].max(axis=1).round(4)
+        out["best_val_spearman"]   = _safe_max(df[val_spearman_cols])
 
     return out
 
