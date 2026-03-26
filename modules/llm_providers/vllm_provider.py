@@ -198,26 +198,34 @@ class VLLMProvider(BaseLLMProvider):
     
     def _format_messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
         """Format messages for LLM prompt using chat template"""
-        # Use the tokenizer's apply_chat_template if available, otherwise fallback
-        try:
-            # Try to use the tokenizer's chat template (supported by vLLM)
-            if hasattr(self.llm, 'get_tokenizer') and self.llm.get_tokenizer():
-                tokenizer = self.llm.get_tokenizer()
-                if hasattr(tokenizer, 'apply_chat_template'):
-                    formatted = tokenizer.apply_chat_template(
-                        messages,
-                        tokenize=False,
-                        add_generation_prompt=True
-                    )
-                    return formatted
-        except:
-            pass
-        
-        # Fallback: Detect model and use appropriate template
         model_name = self.config.model_path or self.config.model or ""
-        
+
+        # MistralCommonTokenizer (used by Mistral v0.3+) raises a warning and
+        # produces malformed output when apply_chat_template is called with
+        # tokenize=False, causing the model to receive a garbled prompt and
+        # generate too few tokens. Skip to the hardcoded template for Mistral.
+        is_mistral = "mistral" in model_name.lower()
+
+        # Use the tokenizer's apply_chat_template if available, otherwise fallback
+        if not is_mistral:
+            try:
+                # Try to use the tokenizer's chat template (supported by vLLM)
+                if hasattr(self.llm, 'get_tokenizer') and self.llm.get_tokenizer():
+                    tokenizer = self.llm.get_tokenizer()
+                    if hasattr(tokenizer, 'apply_chat_template'):
+                        formatted = tokenizer.apply_chat_template(
+                            messages,
+                            tokenize=False,
+                            add_generation_prompt=True
+                        )
+                        return formatted
+            except:
+                pass
+
+        # Fallback: Detect model and use appropriate template
+
         # Mistral format
-        if "mistral" in model_name.lower():
+        if is_mistral:
             prompt = ""
             for message in messages:
                 role = message["role"]
