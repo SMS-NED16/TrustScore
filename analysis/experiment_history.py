@@ -210,6 +210,20 @@ def summary_table(df: pd.DataFrame) -> pd.DataFrame:
     if spearman_cols:
         out["best_test_spearman"] = df[spearman_cols].max(axis=1).round(4)
 
+    train_pearson_cols  = [c for c in df.columns if c.endswith("_train_pearson")]
+    train_spearman_cols = [c for c in df.columns if c.endswith("_train_spearman")]
+    val_pearson_cols    = [c for c in df.columns if c.endswith("_val_pearson")]
+    val_spearman_cols   = [c for c in df.columns if c.endswith("_val_spearman")]
+
+    if train_pearson_cols:
+        out["best_train_pearson"]  = df[train_pearson_cols].max(axis=1).round(4)
+    if train_spearman_cols:
+        out["best_train_spearman"] = df[train_spearman_cols].max(axis=1).round(4)
+    if val_pearson_cols:
+        out["best_val_pearson"]    = df[val_pearson_cols].max(axis=1).round(4)
+    if val_spearman_cols:
+        out["best_val_spearman"]   = df[val_spearman_cols].max(axis=1).round(4)
+
     return out
 
 
