@@ -91,6 +91,11 @@ def build_rows(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         task = manifest.get("task", "unknown")
         model = manifest.get("judge_model", "unknown")
+        n_obs = (
+            manifest.get("n_train", 0)
+            + manifest.get("n_val", 0)
+            + manifest.get("n_test", 0)
+        ) or None
 
         # Row 1: default (untuned)
         if "default" in results:
@@ -104,6 +109,7 @@ def build_rows(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             rows.append({
                 "dataset": task,
                 "model": model,
+                "n_obs": n_obs,
                 "t_score": cs.get("T"),
                 "e_score": cs.get("E"),
                 "b_score": cs.get("B"),
@@ -129,6 +135,7 @@ def build_rows(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             rows.append({
                 "dataset": task,
                 "model": model,
+                "n_obs": n_obs,
                 "t_score": cs.get("T"),
                 "e_score": cs.get("E"),
                 "b_score": cs.get("B"),
@@ -150,13 +157,16 @@ def write_markdown_table(rows: List[Dict[str, Any]], output_path: str) -> str:
     lines = [
         "# Multi-Model Comparison Table",
         "",
-        "| Dataset | Model | T Score | E Score | B Score | Aggregated TEBScore | Tuned | Configs | Pearson | Spearman | Kendall |",
-        "|---------|-------|---------|---------|---------|---------------------|-------|---------|---------|----------|---------|",
+        "| Run Dir | Dataset | Model | N | T Score | E Score | B Score | Aggregated TEBScore | Tuned | Configs | Pearson | Spearman | Kendall |",
+        "|---------|---------|-------|---|---------|---------|---------|---------------------|-------|---------|---------|----------|---------|",
     ]
     for r in rows:
+        n_str = str(r["n_obs"]) if r.get("n_obs") is not None else "—"
         lines.append(
+            f"| {os.path.basename(r['run_dir'])} "
             f"| {r['dataset']} "
             f"| {r['model']} "
+            f"| {n_str} "
             f"| {_fmt_stat(r['t_score'])} "
             f"| {_fmt_stat(r['e_score'])} "
             f"| {_fmt_stat(r['b_score'])} "
@@ -178,7 +188,7 @@ def write_csv_table(rows: List[Dict[str, Any]], output_path: str) -> str:
     path = output_path if output_path.endswith(".csv") else output_path + ".csv"
 
     fieldnames = [
-        "Dataset", "Model", "T Score", "E Score", "B Score",
+        "Run Dir", "Dataset", "Model", "N", "T Score", "E Score", "B Score",
         "Aggregated TEBScore", "Tuned", "Configs",
         "Pearson", "Spearman", "Kendall",
     ]
@@ -187,8 +197,10 @@ def write_csv_table(rows: List[Dict[str, Any]], output_path: str) -> str:
         writer.writeheader()
         for r in rows:
             writer.writerow({
+                "Run Dir": os.path.basename(r["run_dir"]),
                 "Dataset": r["dataset"],
                 "Model": r["model"],
+                "N": r["n_obs"] if r.get("n_obs") is not None else "",
                 "T Score": _fmt_stat_csv(r["t_score"]),
                 "E Score": _fmt_stat_csv(r["e_score"]),
                 "B Score": _fmt_stat_csv(r["b_score"]),
