@@ -42,6 +42,9 @@ def _get_task(task_name: str):
     if task_name == "topicalchat_usr":
         from alignment.tasks.topicalchat_usr_task import TopicalChatUSRTask
         return TopicalChatUSRTask()
+    if task_name == "feedbackqa":
+        from alignment.tasks.feedbackqa_task import FeedbackQATask
+        return FeedbackQATask()
     raise ValueError(f"Unknown task: {task_name}")
 
 
