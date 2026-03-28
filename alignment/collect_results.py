@@ -45,6 +45,7 @@ def load_run(run_dir: str) -> Optional[Dict[str, Any]]:
     manifest_path = os.path.join(run_dir, "run_manifest.json")
     results_path = os.path.join(run_dir, "alignment_results.json")
     configs_path = os.path.join(run_dir, "best_configs.json")
+    splits_path = os.path.join(run_dir, "splits.json")
 
     if not os.path.exists(manifest_path) or not os.path.exists(results_path):
         return None
@@ -59,9 +60,15 @@ def load_run(run_dir: str) -> Optional[Dict[str, Any]]:
         with open(configs_path, "r", encoding="utf-8") as f:
             best_configs = json.load(f)
 
+    splits = {}
+    if os.path.exists(splits_path):
+        with open(splits_path, "r", encoding="utf-8") as f:
+            splits = json.load(f)
+
     return {
         "run_dir": run_dir,
         "manifest": manifest,
+        "splits": splits,
         "alignment_results": alignment_results,
         "best_configs": best_configs,
     }
@@ -91,10 +98,11 @@ def build_rows(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         task = manifest.get("task", "unknown")
         model = manifest.get("judge_model", "unknown")
+        splits = run_data.get("splits", {})
         n_obs = (
-            manifest.get("n_train", 0)
-            + manifest.get("n_val", 0)
-            + manifest.get("n_test", 0)
+            splits.get("n_train", 0)
+            + splits.get("n_val", 0)
+            + splits.get("n_test", 0)
         ) or None
 
         # Row 1: default (untuned)
