@@ -74,22 +74,45 @@ def load_run(run_dir: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def find_best_tuned_method(alignment_results: Dict[str, Dict]) -> Optional[str]:
-    """Pick the tuned method with the highest test Spearman (excluding 'default')."""
-    best_method = None
-    best_val = float("-inf")
-    for method, res in alignment_results.items():
-        if method == "default":
-            continue
-        spearman = res.get("test_spearman")
-        if spearman is not None and spearman == spearman and spearman > best_val:
-            best_val = spearman
-            best_method = method
-    return best_method
+def _make_row(
+    run_data: Dict[str, Any],
+    method_key: str,
+    optimizer_label: str,
+    results: Dict[str, Dict],
+    configs: Dict[str, Dict],
+    task: str,
+    model: str,
+    n_obs: Optional[int],
+) -> Optional[Dict[str, Any]]:
+    """Build a single result row for a given method. Returns None if method absent."""
+    if method_key not in results:
+        return None
+    res = results[method_key]
+    cs = res.get("category_stats", {})
+    config_summary = ""
+    if method_key in configs:
+        cd = configs[method_key].get("config_dict", {})
+        aw = cd.get("aggregation_weights", {})
+        config_summary = f"T={aw.get('trustworthiness', '')}, E={aw.get('explainability', '')}, B={aw.get('bias', '')}"
+    return {
+        "dataset": task,
+        "model": model,
+        "n_obs": n_obs,
+        "t_score": cs.get("T"),
+        "e_score": cs.get("E"),
+        "b_score": cs.get("B"),
+        "aggregated": cs.get("aggregated"),
+        "optimizer": optimizer_label,
+        "configs": config_summary,
+        "test_pearson": res.get("test_pearson"),
+        "test_spearman": res.get("test_spearman"),
+        "test_kendall": res.get("test_kendall"),
+        "run_dir": run_data["run_dir"],
+    }
 
 
 def build_rows(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Build table rows: two rows per run (untuned + best tuned)."""
+    """Build table rows: up to three rows per run (default, lightgbm, optuna)."""
     rows = []
     for run_data in runs:
         manifest = run_data["manifest"]
@@ -105,56 +128,17 @@ def build_rows(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             + splits.get("n_test", 0)
         ) or None
 
-        # Row 1: default (untuned)
-        if "default" in results:
-            res = results["default"]
-            cs = res.get("category_stats", {})
-            config_summary = ""
-            if "default" in configs:
-                cd = configs["default"].get("config_dict", {})
-                aw = cd.get("aggregation_weights", {})
-                config_summary = f"T={aw.get('trustworthiness', '')}, E={aw.get('explainability', '')}, B={aw.get('bias', '')}"
-            rows.append({
-                "dataset": task,
-                "model": model,
-                "n_obs": n_obs,
-                "t_score": cs.get("T"),
-                "e_score": cs.get("E"),
-                "b_score": cs.get("B"),
-                "aggregated": cs.get("aggregated"),
-                "tuned": "No",
-                "configs": config_summary,
-                "test_pearson": res.get("test_pearson"),
-                "test_spearman": res.get("test_spearman"),
-                "test_kendall": res.get("test_kendall"),
-                "run_dir": run_data["run_dir"],
-            })
-
-        # Row 2: best tuned method
-        best_method = find_best_tuned_method(results)
-        if best_method and best_method in results:
-            res = results[best_method]
-            cs = res.get("category_stats", {})
-            config_summary = ""
-            if best_method in configs:
-                cd = configs[best_method].get("config_dict", {})
-                aw = cd.get("aggregation_weights", {})
-                config_summary = f"T={aw.get('trustworthiness', '')}, E={aw.get('explainability', '')}, B={aw.get('bias', '')}"
-            rows.append({
-                "dataset": task,
-                "model": model,
-                "n_obs": n_obs,
-                "t_score": cs.get("T"),
-                "e_score": cs.get("E"),
-                "b_score": cs.get("B"),
-                "aggregated": cs.get("aggregated"),
-                "tuned": f"Yes ({best_method})",
-                "configs": config_summary,
-                "test_pearson": res.get("test_pearson"),
-                "test_spearman": res.get("test_spearman"),
-                "test_kendall": res.get("test_kendall"),
-                "run_dir": run_data["run_dir"],
-            })
+        for method_key, optimizer_label in [
+            ("default", "Default"),
+            ("b", "LightGBM"),
+            ("c", "Optuna"),
+        ]:
+            row = _make_row(
+                run_data, method_key, optimizer_label,
+                results, configs, task, model, n_obs,
+            )
+            if row is not None:
+                rows.append(row)
 
     return rows
 
@@ -165,8 +149,8 @@ def write_markdown_table(rows: List[Dict[str, Any]], output_path: str) -> str:
     lines = [
         "# Multi-Model Comparison Table",
         "",
-        "| Run Dir | Dataset | Model | N | T Score | E Score | B Score | Aggregated TEBScore | Tuned | Configs | Pearson | Spearman | Kendall |",
-        "|---------|---------|-------|---|---------|---------|---------|---------------------|-------|---------|---------|----------|---------|",
+        "| Run Dir | Dataset | Model | N | T Score | E Score | B Score | Aggregated TEBScore | Optimizer | Configs | Pearson | Spearman | Kendall |",
+        "|---------|---------|-------|---|---------|---------|---------|---------------------|-----------|---------|---------|----------|---------|",
     ]
     for r in rows:
         n_str = str(r["n_obs"]) if r.get("n_obs") is not None else "—"
@@ -179,7 +163,7 @@ def write_markdown_table(rows: List[Dict[str, Any]], output_path: str) -> str:
             f"| {_fmt_stat(r['e_score'])} "
             f"| {_fmt_stat(r['b_score'])} "
             f"| {_fmt_stat(r['aggregated'])} "
-            f"| {r['tuned']} "
+            f"| {r['optimizer']} "
             f"| {r['configs']} "
             f"| {_fmt(r['test_pearson'])} "
             f"| {_fmt(r['test_spearman'])} "
@@ -197,7 +181,7 @@ def write_csv_table(rows: List[Dict[str, Any]], output_path: str) -> str:
 
     fieldnames = [
         "Run Dir", "Dataset", "Model", "N", "T Score", "E Score", "B Score",
-        "Aggregated TEBScore", "Tuned", "Configs",
+        "Aggregated TEBScore", "Optimizer", "Configs",
         "Pearson", "Spearman", "Kendall",
     ]
     with open(path, "w", encoding="utf-8", newline="") as f:
@@ -213,7 +197,7 @@ def write_csv_table(rows: List[Dict[str, Any]], output_path: str) -> str:
                 "E Score": _fmt_stat_csv(r["e_score"]),
                 "B Score": _fmt_stat_csv(r["b_score"]),
                 "Aggregated TEBScore": _fmt_stat_csv(r["aggregated"]),
-                "Tuned": r["tuned"],
+                "Optimizer": r["optimizer"],
                 "Configs": r["configs"],
                 "Pearson": _fmt(r["test_pearson"]),
                 "Spearman": _fmt(r["test_spearman"]),
@@ -275,7 +259,7 @@ def main():
     print(f"\nComparison table written:")
     print(f"  Markdown: {md_path}")
     print(f"  CSV:      {csv_path}")
-    print(f"  Rows:     {len(rows)} ({len(runs)} runs x 2 rows each)")
+    print(f"  Rows:     {len(rows)} ({len(runs)} runs, up to 3 rows each: Default / LightGBM / Optuna)")
 
 
 if __name__ == "__main__":
