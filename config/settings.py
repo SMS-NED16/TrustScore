@@ -70,7 +70,37 @@ class SpanTaggerConfig(LLMConfig):
 class StatisticalConfig(BaseModel):
     """Configuration for statistical analysis and confidence intervals"""
     t_critical_values: Dict[int, float] = Field(default_factory=lambda: {
-        3: 2.776, 4: 2.571, 5: 2.447, 6: 2.365, 7: 2.306, 8: 2.262, 9: 2.228, 10: 2.201
+        # Keys are sample size n; values are t*(df=n-1, alpha=0.025) for 95% two-sided CI.
+        # Previously the table stored t*(df=n+1), causing CIs 12–36% too narrow for small n.
+        2: 12.706,  # df=1
+        3: 4.303,   # df=2
+        4: 3.182,   # df=3
+        5: 2.776,   # df=4
+        6: 2.571,   # df=5
+        7: 2.447,   # df=6
+        8: 2.365,   # df=7
+        9: 2.306,   # df=8
+        10: 2.262,  # df=9
+        11: 2.228,  # df=10
+        12: 2.201,  # df=11
+        13: 2.179,  # df=12
+        14: 2.160,  # df=13
+        15: 2.145,  # df=14
+        16: 2.131,  # df=15
+        17: 2.120,  # df=16
+        18: 2.110,  # df=17
+        19: 2.101,  # df=18
+        20: 2.093,  # df=19
+        21: 2.086,  # df=20
+        22: 2.080,  # df=21
+        23: 2.074,  # df=22
+        24: 2.069,  # df=23
+        25: 2.064,  # df=24
+        26: 2.060,  # df=25
+        27: 2.056,  # df=26
+        28: 2.052,  # df=27
+        29: 2.048,  # df=28
+        30: 2.045,  # df=29
     })
     confidence_margin: float = Field(default=0.05, ge=0, le=0.2)
     min_sample_size_for_t_dist: int = Field(default=30)
