@@ -59,14 +59,12 @@ def load_and_prepare(path: str) -> pd.DataFrame:
 
     # Normalise column names from multiple CSV formats:
     #   - notebook format:        dataset, model, optimizer, test_spearman  (already correct)
-    #   - old collect_results:    Dataset, Model, Optimizer, Spearman
-    #   - new collect_results:    Dataset, Model, Optimizer, Test Spearman
+    #   - collect_results format: Dataset, Model, Optimizer, Spearman
     rename = {}
     for old, new in [
         ("Dataset", "dataset"), ("Model", "model"),
         ("Optimizer", "optimizer"), ("Tuned", "tuned"),
-        ("Spearman", "test_spearman"),       # old collect_results
-        ("Test Spearman", "test_spearman"),  # new collect_results
+        ("Spearman", "test_spearman"),
     ]:
         if old in df.columns:
             rename[old] = new
