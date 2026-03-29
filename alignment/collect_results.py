@@ -253,13 +253,29 @@ def main():
         sys.exit(1)
 
     rows = build_rows(runs)
+    before = len(rows)
+
+    # Deduplicate: keep best test_spearman per (dataset, model, optimizer)
+    seen: Dict[tuple, Dict[str, Any]] = {}
+    for row in rows:
+        key = (row["dataset"], row["model"], row["optimizer"])
+        existing = seen.get(key)
+        if existing is None:
+            seen[key] = row
+        else:
+            ts_new = row["test_spearman"] if row["test_spearman"] is not None else float("-inf")
+            ts_old = existing["test_spearman"] if existing["test_spearman"] is not None else float("-inf")
+            if ts_new > ts_old:
+                seen[key] = row
+    rows = list(seen.values())
+
     md_path = write_markdown_table(rows, args.output)
     csv_path = write_csv_table(rows, args.output)
 
     print(f"\nComparison table written:")
     print(f"  Markdown: {md_path}")
     print(f"  CSV:      {csv_path}")
-    print(f"  Rows:     {len(rows)} ({len(runs)} runs, up to 3 rows each: Default / LightGBM / Optuna)")
+    print(f"  Rows:     {len(rows)} (deduplicated from {before}; up to 3 per combination: Default / LightGBM / Optuna)")
 
 
 if __name__ == "__main__":
