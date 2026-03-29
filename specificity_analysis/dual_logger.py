@@ -51,6 +51,10 @@ class DualLogger:
             self.log_file.write(message)
             self.log_file.flush()
     
+    def fileno(self):
+        """Delegate to original stdout's file descriptor (required by subprocesses/vLLM)."""
+        return self.original_stdout.fileno()
+
     def flush(self):
         """Flush both outputs."""
         self.original_stdout.flush()
