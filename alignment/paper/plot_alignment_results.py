@@ -57,13 +57,28 @@ def load_and_prepare(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
     df.columns = [c.strip() for c in df.columns]
 
-    # Normalise column names from both old and new collect_results formats
+    # Normalise column names from multiple CSV formats:
+    #   - notebook format:        dataset, model, optimizer, test_spearman  (already correct)
+    #   - old collect_results:    Dataset, Model, Optimizer, Spearman
+    #   - new collect_results:    Dataset, Model, Optimizer, Test Spearman
     rename = {}
-    for old, new in [("Dataset","dataset"),("Model","model"),
-                     ("Spearman","test_spearman"),("Optimizer","optimizer"),("Tuned","tuned")]:
+    for old, new in [
+        ("Dataset", "dataset"), ("Model", "model"),
+        ("Optimizer", "optimizer"), ("Tuned", "tuned"),
+        ("Spearman", "test_spearman"),       # old collect_results
+        ("Test Spearman", "test_spearman"),  # new collect_results
+    ]:
         if old in df.columns:
             rename[old] = new
     df.rename(columns=rename, inplace=True)
+
+    # Normalise optimizer label capitalisation (notebook writes lowercase)
+    if "optimizer" in df.columns:
+        df["optimizer"] = df["optimizer"].map(
+            lambda v: {"default": "Default", "lightgbm": "LightGBM", "optuna": "Optuna"}.get(
+                str(v).strip().lower(), str(v).strip()
+            )
+        )
 
     # If old format (tuned bool), derive optimizer label
     if "optimizer" not in df.columns and "tuned" in df.columns:
