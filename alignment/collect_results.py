@@ -104,6 +104,12 @@ def _make_row(
         "aggregated": cs.get("aggregated"),
         "optimizer": optimizer_label,
         "configs": config_summary,
+        "train_pearson": res.get("train_pearson"),
+        "train_spearman": res.get("train_spearman"),
+        "train_kendall": res.get("train_kendall"),
+        "val_pearson": res.get("val_pearson"),
+        "val_spearman": res.get("val_spearman"),
+        "val_kendall": res.get("val_kendall"),
         "test_pearson": res.get("test_pearson"),
         "test_spearman": res.get("test_spearman"),
         "test_kendall": res.get("test_kendall"),
@@ -149,8 +155,8 @@ def write_markdown_table(rows: List[Dict[str, Any]], output_path: str) -> str:
     lines = [
         "# Multi-Model Comparison Table",
         "",
-        "| Run Dir | Dataset | Model | N | T Score | E Score | B Score | Aggregated TEBScore | Optimizer | Configs | Pearson | Spearman | Kendall |",
-        "|---------|---------|-------|---|---------|---------|---------|---------------------|-----------|---------|---------|----------|---------|",
+        "| Run Dir | Dataset | Model | N | T Score | E Score | B Score | Aggregated TEBScore | Optimizer | Configs | Train Pearson | Train Spearman | Train Kendall | Val Pearson | Val Spearman | Val Kendall | Test Pearson | Test Spearman | Test Kendall |",
+        "|---------|---------|-------|---|---------|---------|---------|---------------------|-----------|---------|---------------|----------------|---------------|-------------|--------------|-------------|--------------|---------------|--------------|",
     ]
     for r in rows:
         n_str = str(r["n_obs"]) if r.get("n_obs") is not None else "—"
@@ -165,6 +171,12 @@ def write_markdown_table(rows: List[Dict[str, Any]], output_path: str) -> str:
             f"| {_fmt_stat(r['aggregated'])} "
             f"| {r['optimizer']} "
             f"| {r['configs']} "
+            f"| {_fmt(r['train_pearson'])} "
+            f"| {_fmt(r['train_spearman'])} "
+            f"| {_fmt(r['train_kendall'])} "
+            f"| {_fmt(r['val_pearson'])} "
+            f"| {_fmt(r['val_spearman'])} "
+            f"| {_fmt(r['val_kendall'])} "
             f"| {_fmt(r['test_pearson'])} "
             f"| {_fmt(r['test_spearman'])} "
             f"| {_fmt(r['test_kendall'])} |"
@@ -182,7 +194,9 @@ def write_csv_table(rows: List[Dict[str, Any]], output_path: str) -> str:
     fieldnames = [
         "Run Dir", "Dataset", "Model", "N", "T Score", "E Score", "B Score",
         "Aggregated TEBScore", "Optimizer", "Configs",
-        "Pearson", "Spearman", "Kendall",
+        "Train Pearson", "Train Spearman", "Train Kendall",
+        "Val Pearson", "Val Spearman", "Val Kendall",
+        "Test Pearson", "Test Spearman", "Test Kendall",
     ]
     with open(path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -199,9 +213,15 @@ def write_csv_table(rows: List[Dict[str, Any]], output_path: str) -> str:
                 "Aggregated TEBScore": _fmt_stat_csv(r["aggregated"]),
                 "Optimizer": r["optimizer"],
                 "Configs": r["configs"],
-                "Pearson": _fmt(r["test_pearson"]),
-                "Spearman": _fmt(r["test_spearman"]),
-                "Kendall": _fmt(r["test_kendall"]),
+                "Train Pearson": _fmt(r["train_pearson"]),
+                "Train Spearman": _fmt(r["train_spearman"]),
+                "Train Kendall": _fmt(r["train_kendall"]),
+                "Val Pearson": _fmt(r["val_pearson"]),
+                "Val Spearman": _fmt(r["val_spearman"]),
+                "Val Kendall": _fmt(r["val_kendall"]),
+                "Test Pearson": _fmt(r["test_pearson"]),
+                "Test Spearman": _fmt(r["test_spearman"]),
+                "Test Kendall": _fmt(r["test_kendall"]),
             })
     return path
 
@@ -255,10 +275,19 @@ def main():
     rows = build_rows(runs)
     before = len(rows)
 
-    # Deduplicate: keep best test_spearman per (dataset, model, optimizer)
+    # Normalise model name: strip HuggingFace org prefix (e.g. "google/gemma-2-9b" -> "gemma-2-9b")
+    # so that runs launched with and without the prefix deduplicate correctly.
+    _MODEL_ALIASES = {
+        "gemma-2-9b-it": "gemma-2-9b",  # instruction-tuned variant treated as same model
+    }
+    def _normalise_model(name: str) -> str:
+        name = name.split("/")[-1] if "/" in name else name
+        return _MODEL_ALIASES.get(name, name)
+
+    # Deduplicate: keep best test_spearman per (dataset, normalised_model, optimizer)
     seen: Dict[tuple, Dict[str, Any]] = {}
     for row in rows:
-        key = (row["dataset"], row["model"], row["optimizer"])
+        key = (row["dataset"], _normalise_model(row["model"]), row["optimizer"])
         existing = seen.get(key)
         if existing is None:
             seen[key] = row
